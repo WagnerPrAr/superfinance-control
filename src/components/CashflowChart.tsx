@@ -29,22 +29,16 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
   const maxVal = Math.max(100000, ...series.flatMap((s) => [s.incomeCents, s.expenseCents]));
 
   return (
-    <div className="surface">
-      <div className="section-header">
-        <div>
-          <h2 className="section-title">Fluxo de Caixa (6 meses)</h2>
-          <p className="section-desc">Entradas vs. Saídas por mês de competência (centavos exatos)</p>
-        </div>
-        <div style={{ display: 'flex', gap: 12, fontSize: 12, fontWeight: 600 }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--accent-emerald)' }}>
-            <span style={{ width: 9, height: 9, borderRadius: 2, background: 'var(--accent-emerald)' }} />
-            Entradas
-          </span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--accent-terracotta)' }}>
-            <span style={{ width: 9, height: 9, borderRadius: 2, background: 'var(--accent-terracotta)' }} />
-            Saídas
-          </span>
-        </div>
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 14, fontSize: 12, fontWeight: 600, marginBottom: 10 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--accent-emerald)' }}>
+          <span style={{ width: 9, height: 9, borderRadius: 2, background: 'var(--accent-emerald)' }} />
+          Entradas
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--accent-terracotta)' }}>
+          <span style={{ width: 9, height: 9, borderRadius: 2, background: 'var(--accent-terracotta)' }} />
+          Saídas
+        </span>
       </div>
 
       <svg

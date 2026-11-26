@@ -19,6 +19,7 @@ import {
   type CalendarStatusResponse,
   type CreateAlertPayload,
 } from '../services/calendarApi';
+import { CollapsiblePanel } from './CollapsiblePanel';
 
 export interface SelectedAlertRequest {
   tx: Transaction;
@@ -422,16 +423,14 @@ export function CalendarAlertsPanel({
         )}
       </div>
 
-      <div className="grid-equal">
-        {/* Formulário de Alerta sob Demanda */}
-        <div className="surface">
-          <div className="section-header">
-            <div>
-              <h3 className="section-title">Criar Alerta sob Demanda</h3>
-              <p className="section-desc">Agende um lembrete único ou recorrente no calendário financeiro</p>
-            </div>
-          </div>
-
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Formulário de Alerta sob Demanda (recolhido por padrão para tela limpa) */}
+        <CollapsiblePanel
+          title="Criar Alerta sob Demanda"
+          subtitle="Agende um lembrete único ou recorrente manualmente"
+          defaultOpen={false}
+          summary={<span className="tag">Manual</span>}
+        >
           <form onSubmit={handleCustomSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
             <div className="field">
               <label htmlFor="cal-summary">Título do Alerta</label>
@@ -529,18 +528,15 @@ export function CalendarAlertsPanel({
               </button>
             </div>
           </form>
-        </div>
+        </CollapsiblePanel>
 
-        {/* Contas Importantes Pendentes */}
-        <div className="surface">
-          <div className="section-header">
-            <div>
-              <h3 className="section-title">Contas Importantes Pendentes</h3>
-              <p className="section-desc">Atalho rápido para contas críticas ainda não quitadas</p>
-            </div>
-            <span className="tag tag-amber">{importantPendingTxs.length} pendentes</span>
-          </div>
-
+        {/* Contas Importantes Pendentes (resumido com badge) */}
+        <CollapsiblePanel
+          title="Contas Importantes Pendentes"
+          subtitle="Atalho rápido para contas críticas ainda não quitadas"
+          defaultOpen={false}
+          summary={<span className="tag tag-amber">{importantPendingTxs.length} pendentes</span>}
+        >
           {importantPendingTxs.length === 0 ? (
             <p className="section-desc">Nenhuma conta importante pendente no momento.</p>
           ) : (
@@ -617,49 +613,48 @@ export function CalendarAlertsPanel({
               ))}
             </div>
           )}
-        </div>
-      </div>
+        </CollapsiblePanel>
 
-      {/* Eventos Reais Sincronizados no Google Calendar */}
-      <div className="surface">
-        <div className="section-header">
-          <div>
-            <h3 className="section-title">Eventos no Google Calendar (Calendário Separado)</h3>
-            <p className="section-desc">Leitura direta do calendário financeiro para os próximos 120 dias</p>
-          </div>
-          <span className="tag tag-navy">
-            <Calendar size={12} /> {events.length} eventos
-          </span>
-        </div>
-
-        {events.length === 0 ? (
-          <p className="section-desc">
-            Nenhum alerta listado no calendário remoto. Selecione lançamentos acima e clique em "Sincronizar" para enviar novos alertas.
-          </p>
-        ) : (
-          <div className="list-stack">
-            {events.map((ev) => {
-              const startLabel = ev.start?.date || ev.start?.dateTime?.slice(0, 16).replace('T', ' ') || '—';
-              return (
-                <div key={ev.id} className="list-row">
-                  <div className="list-row-main">
-                    <div className="list-row-title">{ev.summary}</div>
-                    <div className="list-row-sub">
-                      <span className="mono">{startLabel}</span>
-                      {ev.description && <span>• {ev.description.split('\n')[0]}</span>}
+        {/* Eventos Reais Sincronizados no Google Calendar */}
+        <CollapsiblePanel
+          title="Eventos no Google Calendar"
+          subtitle="Leitura direta do calendário financeiro (próximos 120 dias)"
+          defaultOpen={events.length > 0}
+          summary={
+            <span className="tag tag-navy">
+              <Calendar size={12} /> {events.length} eventos
+            </span>
+          }
+        >
+          {events.length === 0 ? (
+            <p className="section-desc">
+              Nenhum alerta listado no calendário remoto. Selecione lançamentos acima e clique em "Sincronizar" para enviar novos alertas.
+            </p>
+          ) : (
+            <div className="list-stack">
+              {events.map((ev) => {
+                const startLabel = ev.start?.date || ev.start?.dateTime?.slice(0, 16).replace('T', ' ') || '—';
+                return (
+                  <div key={ev.id} className="list-row">
+                    <div className="list-row-main">
+                      <div className="list-row-title">{ev.summary}</div>
+                      <div className="list-row-sub">
+                        <span className="mono">{startLabel}</span>
+                        {ev.description && <span>• {ev.description.split('\n')[0]}</span>}
+                      </div>
                     </div>
+                    {ev.htmlLink && (
+                      <a href={ev.htmlLink} target="_blank" rel="noreferrer" className="btn btn-sm">
+                        <ExternalLink size={13} />
+                        Abrir no Calendar
+                      </a>
+                    )}
                   </div>
-                  {ev.htmlLink && (
-                    <a href={ev.htmlLink} target="_blank" rel="noreferrer" className="btn btn-sm">
-                      <ExternalLink size={13} />
-                      Abrir no Calendar
-                    </a>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          )}
+        </CollapsiblePanel>
       </div>
     </div>
   );

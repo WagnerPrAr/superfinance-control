@@ -6,11 +6,13 @@ import {
   CalendarClock,
   Check,
   CreditCard as CreditCardIcon,
+  Filter,
   Landmark,
   LayoutDashboard,
   Plus,
   Repeat,
   RotateCcw,
+  SlidersHorizontal,
   Trash2,
 } from 'lucide-react';
 import { buildInitialSeedState } from './data/seedData';
@@ -44,10 +46,38 @@ import {
 import { CashflowChart } from './components/CashflowChart';
 import { NewTransactionModal } from './components/NewTransactionModal';
 import { CalendarAlertsPanel, type SelectedAlertRequest } from './components/CalendarAlertsPanel';
+import { CollapsiblePanel } from './components/CollapsiblePanel';
 
 type NavTab = 'overview' | 'accounts' | 'cards' | 'transactions' | 'recurrences' | 'calendar';
 
+interface OverviewPrefs {
+  showSecondaryKpis: boolean;
+  showCashflow: boolean;
+  showUpcoming: boolean;
+  showCategories: boolean;
+}
+
 const STORAGE_KEY = 'superfinance_state_v1';
+const VIEW_PREFS_KEY = 'superfinance_view_prefs_v1';
+
+const DEFAULT_OVERVIEW_PREFS: OverviewPrefs = {
+  showSecondaryKpis: true,
+  showCashflow: true,
+  showUpcoming: true,
+  showCategories: false,
+};
+
+function loadOverviewPrefs(): OverviewPrefs {
+  try {
+    const raw = localStorage.getItem(VIEW_PREFS_KEY);
+    if (raw) {
+      return { ...DEFAULT_OVERVIEW_PREFS, ...(JSON.parse(raw) as Partial<OverviewPrefs>) };
+    }
+  } catch {
+    // Fallback
+  }
+  return DEFAULT_OVERVIEW_PREFS;
+}
 
 const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   checking: 'Conta Corrente',
@@ -82,6 +112,11 @@ export function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('overview');
   const [currentYm, setCurrentYm] = useState<string>(getCurrentYearMonth);
   const [showNewTxModal, setShowNewTxModal] = useState(false);
+
+  // Preferências de exibição escolhidas pelo usuário (limpeza visual / mobile)
+  const [overviewPrefs, setOverviewPrefs] = useState<OverviewPrefs>(loadOverviewPrefs);
+  const [showCustomizer, setShowCustomizer] = useState(false);
+  const [showTxFilters, setShowTxFilters] = useState(false);
 
   // Filtros de Lançamentos
   const [txFilterType, setTxFilterType] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
@@ -137,6 +172,18 @@ export function App() {
       // Ignora quota errors
     }
   }, [state]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEW_PREFS_KEY, JSON.stringify(overviewPrefs));
+    } catch {
+      // Ignora quota errors
+    }
+  }, [overviewPrefs]);
+
+  function toggleOverviewPref(key: keyof OverviewPrefs) {
+    setOverviewPrefs((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
 
   const refreshCalendar = useCallback(async () => {
     setLoadingCal(true);
@@ -613,43 +660,94 @@ export function App() {
             <p className="page-subtitle">{pageMeta[activeTab].subtitle}</p>
           </div>
           <div className="topbar-actions">
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               <button
                 type="button"
-                className="btn btn-sm"
+                className="btn btn-sm btn-icon-only"
                 onClick={() => setCurrentYm((ym) => shiftYearMonth(ym, -1))}
                 aria-label="Mês anterior"
               >
                 ←
               </button>
-              <span className="mono" style={{ fontWeight: 600, fontSize: 13.5, padding: '0 6px' }}>
+              <span className="mono" style={{ fontWeight: 600, fontSize: 13.5, padding: '0 4px' }}>
                 {currentYm}
               </span>
               <button
                 type="button"
-                className="btn btn-sm"
+                className="btn btn-sm btn-icon-only"
                 onClick={() => setCurrentYm((ym) => shiftYearMonth(ym, 1))}
                 aria-label="Próximo mês"
               >
                 →
               </button>
             </div>
-            <button
-              type="button"
-              id="btn-new-transaction"
-              className="btn btn-primary"
-              onClick={() => setShowNewTxModal(true)}
-            >
-              <Plus size={16} />
-              Novo Lançamento
-            </button>
+
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              {activeTab === 'overview' && (
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  aria-expanded={showCustomizer}
+                  onClick={() => setShowCustomizer((v) => !v)}
+                >
+                  <SlidersHorizontal size={15} />
+                  Personalizar
+                </button>
+              )}
+              <button
+                type="button"
+                id="btn-new-transaction"
+                className="btn btn-primary"
+                onClick={() => setShowNewTxModal(true)}
+              >
+                <Plus size={16} />
+                Novo
+              </button>
+            </div>
           </div>
         </header>
 
         {/* TAB: VISÃO GERAL */}
         {activeTab === 'overview' && (
-          <>
-            <section className="kpi-grid" aria-label="Indicadores financeiros">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {showCustomizer && (
+              <div className="customizer-bar" role="region" aria-label="Personalizar painéis da visão geral">
+                <button
+                  type="button"
+                  className={`chip-toggle ${overviewPrefs.showSecondaryKpis ? 'active' : ''}`}
+                  onClick={() => toggleOverviewPref('showSecondaryKpis')}
+                >
+                  Indicadores do Mês
+                </button>
+                <button
+                  type="button"
+                  className={`chip-toggle ${overviewPrefs.showCashflow ? 'active' : ''}`}
+                  onClick={() => toggleOverviewPref('showCashflow')}
+                >
+                  Fluxo de Caixa
+                </button>
+                <button
+                  type="button"
+                  className={`chip-toggle ${overviewPrefs.showUpcoming ? 'active' : ''}`}
+                  onClick={() => toggleOverviewPref('showUpcoming')}
+                >
+                  Próximos Vencimentos
+                </button>
+                <button
+                  type="button"
+                  className={`chip-toggle ${overviewPrefs.showCategories ? 'active' : ''}`}
+                  onClick={() => toggleOverviewPref('showCategories')}
+                >
+                  Despesas por Categoria
+                </button>
+              </div>
+            )}
+
+            <section
+              className="kpi-grid"
+              aria-label="Indicadores financeiros"
+              style={overviewPrefs.showSecondaryKpis ? { marginBottom: 4 } : { gridTemplateColumns: '1fr', marginBottom: 4 }}
+            >
               <div className="surface">
                 <div className="kpi-label">
                   <span>Patrimônio Líquido</span>
@@ -659,53 +757,55 @@ export function App() {
                 <div className="kpi-meta">Contas menos faturas em aberto</div>
               </div>
 
-              <div className="surface">
-                <div className="kpi-label">
-                  <span>Entradas ({currentYm})</span>
-                  <ArrowDownLeft size={16} className="text-emerald" />
-                </div>
-                <div className="kpi-value mono text-emerald">{formatCentsBRL(monthIncomeCents)}</div>
-                <div className="kpi-meta">Receitas lançadas no mês</div>
-              </div>
+              {overviewPrefs.showSecondaryKpis && (
+                <>
+                  <div className="surface">
+                    <div className="kpi-label">
+                      <span>Entradas ({currentYm})</span>
+                      <ArrowDownLeft size={16} className="text-emerald" />
+                    </div>
+                    <div className="kpi-value mono text-emerald">{formatCentsBRL(monthIncomeCents)}</div>
+                    <div className="kpi-meta">Receitas do mês</div>
+                  </div>
 
-              <div className="surface">
-                <div className="kpi-label">
-                  <span>Saídas ({currentYm})</span>
-                  <ArrowUpRight size={16} className="text-terracotta" />
-                </div>
-                <div className="kpi-value mono text-terracotta">{formatCentsBRL(monthExpenseCents)}</div>
-                <div className="kpi-meta">
-                  Resultado:{' '}
-                  <strong className={`mono ${monthResultCents >= 0 ? 'text-emerald' : 'text-terracotta'}`}>
-                    {formatCentsBRL(monthResultCents, { showSign: true })}
-                  </strong>
-                </div>
-              </div>
+                  <div className="surface">
+                    <div className="kpi-label">
+                      <span>Saídas ({currentYm})</span>
+                      <ArrowUpRight size={16} className="text-terracotta" />
+                    </div>
+                    <div className="kpi-value mono text-terracotta">{formatCentsBRL(monthExpenseCents)}</div>
+                    <div className="kpi-meta">
+                      Saldo:{' '}
+                      <strong className={`mono ${monthResultCents >= 0 ? 'text-emerald' : 'text-terracotta'}`}>
+                        {formatCentsBRL(monthResultCents, { showSign: true })}
+                      </strong>
+                    </div>
+                  </div>
 
-              <div className="surface">
-                <div className="kpi-label">
-                  <span>Limite Comprometido</span>
-                  <CreditCardIcon size={16} className="text-navy" />
-                </div>
-                <div className="kpi-value mono text-navy">{formatCentsBRL(totalOpenCardsCents)}</div>
-                <div className="kpi-meta">Total em aberto em {state.cards.length} cartão(ões)</div>
-              </div>
+                  <div className="surface">
+                    <div className="kpi-label">
+                      <span>Cartões em Aberto</span>
+                      <CreditCardIcon size={16} className="text-navy" />
+                    </div>
+                    <div className="kpi-value mono text-navy">{formatCentsBRL(totalOpenCardsCents)}</div>
+                    <div className="kpi-meta">{state.cards.length} cartão(ões)</div>
+                  </div>
+                </>
+              )}
             </section>
 
-            <section className="grid-2">
-              <CashflowChart transactions={state.transactions} currentYearMonth={currentYm} />
-
-              <div className="surface">
-                <div className="section-header">
-                  <div>
-                    <h2 className="section-title">Próximos Vencimentos</h2>
-                    <p className="section-desc">Contas importantes com alerta rápido no Google Calendar</p>
-                  </div>
+            {overviewPrefs.showUpcoming && (
+              <CollapsiblePanel
+                title="Próximos Vencimentos"
+                subtitle="Contas importantes com alerta rápido"
+                defaultOpen={true}
+                summary={<span className="tag tag-amber">{importantPendingTxs.length} pendentes</span>}
+                headerAction={
                   <button type="button" className="btn btn-sm" onClick={() => setActiveTab('calendar')}>
-                    Ver Agenda
+                    Agenda
                   </button>
-                </div>
-
+                }
+              >
                 {importantPendingTxs.length === 0 ? (
                   <p className="section-desc">Tudo em dia! Nenhuma conta pendente.</p>
                 ) : (
@@ -726,8 +826,9 @@ export function App() {
                           </span>
                           <button
                             type="button"
-                            className="btn btn-sm"
+                            className="btn btn-sm btn-icon-only"
                             title="Criar alerta no Google Calendar"
+                            aria-label={`Alertar ${tx.description} no Google Calendar`}
                             disabled={creatingAlert || !calStatus?.connected}
                             onClick={() =>
                               void handleCreateCalendarAlert(
@@ -742,47 +843,67 @@ export function App() {
                               )
                             }
                           >
-                            <Bell size={13} />
+                            <Bell size={15} />
                           </button>
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
-              </div>
-            </section>
+              </CollapsiblePanel>
+            )}
 
-            <section className="surface">
-              <div className="section-header">
-                <div>
-                  <h2 className="section-title">Despesas por Categoria ({currentYm})</h2>
-                  <p className="section-desc">Distribuição proporcional dos gastos do período selecionado</p>
-                </div>
-              </div>
-              {categoryBreakdown.length === 0 ? (
-                <p className="section-desc">Nenhuma despesa registrada neste mês.</p>
-              ) : (
-                <div className="grid-3">
-                  {categoryBreakdown.map((item) => {
-                    const pct = monthExpenseCents > 0 ? Math.round((item.cents / monthExpenseCents) * 100) : 0;
-                    return (
-                      <div key={item.category} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13.5 }}>
-                          <span style={{ fontWeight: 600 }}>{item.category}</span>
-                          <span className="mono" style={{ fontWeight: 600 }}>
-                            {formatCentsBRL(item.cents)} <span style={{ color: 'var(--ink-muted)' }}>({pct}%)</span>
-                          </span>
+            {overviewPrefs.showCashflow && (
+              <CollapsiblePanel
+                title="Fluxo de Caixa (6 meses)"
+                subtitle="Entradas vs. Saídas por competência"
+                defaultOpen={true}
+                summary={
+                  <span className={`mono ${monthResultCents >= 0 ? 'text-emerald' : 'text-terracotta'}`} style={{ fontWeight: 700, fontSize: 13 }}>
+                    {formatCentsBRL(monthResultCents, { showSign: true })}
+                  </span>
+                }
+              >
+                <CashflowChart transactions={state.transactions} currentYearMonth={currentYm} />
+              </CollapsiblePanel>
+            )}
+
+            {overviewPrefs.showCategories && (
+              <CollapsiblePanel
+                title={`Despesas por Categoria (${currentYm})`}
+                subtitle="Distribuição proporcional dos gastos"
+                defaultOpen={true}
+                summary={
+                  <span className="mono text-terracotta" style={{ fontWeight: 700, fontSize: 13 }}>
+                    {formatCentsBRL(monthExpenseCents)}
+                  </span>
+                }
+              >
+                {categoryBreakdown.length === 0 ? (
+                  <p className="section-desc">Nenhuma despesa registrada neste mês.</p>
+                ) : (
+                  <div className="grid-3">
+                    {categoryBreakdown.map((item) => {
+                      const pct = monthExpenseCents > 0 ? Math.round((item.cents / monthExpenseCents) * 100) : 0;
+                      return (
+                        <div key={item.category} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13.5 }}>
+                            <span style={{ fontWeight: 600 }}>{item.category}</span>
+                            <span className="mono" style={{ fontWeight: 600 }}>
+                              {formatCentsBRL(item.cents)} <span style={{ color: 'var(--ink-muted)' }}>({pct}%)</span>
+                            </span>
+                          </div>
+                          <div className="progress-track-light">
+                            <div className="progress-fill-dark" style={{ width: `${Math.max(4, pct)}%` }} />
+                          </div>
                         </div>
-                        <div className="progress-track-light">
-                          <div className="progress-fill-dark" style={{ width: `${Math.max(4, pct)}%` }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          </>
+                      );
+                    })}
+                  </div>
+                )}
+              </CollapsiblePanel>
+            )}
+          </div>
         )}
 
         {/* TAB: CONTAS */}
@@ -809,10 +930,12 @@ export function App() {
               })}
             </div>
 
-            <div className="surface">
-              <h2 className="section-title" style={{ marginBottom: 14 }}>
-                Adicionar Nova Conta
-              </h2>
+            <CollapsiblePanel
+              title="Adicionar Nova Conta"
+              subtitle="Cadastre conta corrente, reserva, dinheiro ou investimento"
+              defaultOpen={false}
+              summary={<span className="tag">+ Nova</span>}
+            >
               <form onSubmit={handleAddAccount} className="form-grid">
                 <div className="field">
                   <label htmlFor="acc-name">Nome da Conta</label>
@@ -865,13 +988,13 @@ export function App() {
                   </button>
                 </div>
               </form>
-            </div>
+            </CollapsiblePanel>
           </div>
         )}
 
         {/* TAB: CARTÕES & FATURAS */}
         {activeTab === 'cards' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             <div className="grid-equal">
               {state.cards.map((card) => {
                 const usedCents = computeCardUsedLimitCents(card.id, state.transactions);
@@ -885,7 +1008,7 @@ export function App() {
                 );
 
                 return (
-                  <div key={card.id} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div key={card.id} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     <div className="credit-card-tile" style={{ background: card.accentColor }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <div>
@@ -900,35 +1023,32 @@ export function App() {
                       <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 6 }}>
                           <span>Limite utilizado ({usagePct}%)</span>
-                          <span className="mono">Disponível: {formatCentsBRL(availCents)}</span>
+                          <span className="mono">Disp.: {formatCentsBRL(availCents)}</span>
                         </div>
                         <div className="progress-track">
                           <div className="progress-fill" style={{ width: `${usagePct}%` }} />
                         </div>
                       </div>
 
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, opacity: 0.9 }}>
-                        <span>Fechamento: dia {card.closingDay}</span>
-                        <span>Vencimento: dia {card.dueDay}</span>
-                        <span className="mono">Limite: {formatCentsBRL(card.limitCents)}</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, opacity: 0.9, flexWrap: 'wrap', gap: 6 }}>
+                        <span>Fecha dia {card.closingDay}</span>
+                        <span>Vence dia {card.dueDay}</span>
+                        <span className="mono">{formatCentsBRL(card.limitCents)}</span>
                       </div>
                     </div>
 
-                    <div className="surface">
-                      <div className="section-header">
-                        <div>
-                          <h3 className="section-title">Fatura {stmtPeriod}</h3>
-                          <p className="section-desc">
-                            Vencimento: <span className="mono">{stmtDueDate}</span>
-                          </p>
-                        </div>
-                        <div className="mono" style={{ fontWeight: 700, fontSize: 18 }}>
+                    <CollapsiblePanel
+                      title={`Fatura ${stmtPeriod}`}
+                      subtitle={`Vencimento ${stmtDueDate} • ${stmtTxs.length} item(ns)`}
+                      defaultOpen={false}
+                      summary={
+                        <span className="mono" style={{ fontWeight: 700, fontSize: 15 }}>
                           {formatCentsBRL(stmtCents)}
-                        </div>
-                      </div>
-
+                        </span>
+                      }
+                    >
                       {stmtTxs.length === 0 ? (
-                        <p className="section-desc">Sem compras lançadas nesta fatura.</p>
+                        <p className="section-desc" style={{ marginBottom: 14 }}>Sem compras lançadas nesta fatura.</p>
                       ) : (
                         <div className="list-stack" style={{ marginBottom: 14 }}>
                           {stmtTxs.map((tx) => (
@@ -974,19 +1094,21 @@ export function App() {
                             })
                           }
                         >
-                          <Bell size={14} /> Alertar no Google Calendar
+                          <Bell size={14} /> Alertar no Calendar
                         </button>
                       </div>
-                    </div>
+                    </CollapsiblePanel>
                   </div>
                 );
               })}
             </div>
 
-            <div className="surface">
-              <h2 className="section-title" style={{ marginBottom: 14 }}>
-                Adicionar Cartão de Crédito
-              </h2>
+            <CollapsiblePanel
+              title="Adicionar Cartão de Crédito"
+              subtitle="Configure limite, dia de fechamento e vencimento"
+              defaultOpen={false}
+              summary={<span className="tag">+ Novo</span>}
+            >
               <form onSubmit={handleAddCard} className="form-grid">
                 <div className="field">
                   <label htmlFor="c-name">Nome do Cartão</label>
@@ -1061,41 +1183,58 @@ export function App() {
                   </button>
                 </div>
               </form>
-            </div>
+            </CollapsiblePanel>
           </div>
         )}
 
         {/* TAB: LANÇAMENTOS */}
         {activeTab === 'transactions' && (
           <div className="surface">
-            <div className="filters-bar">
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
               <input
                 className="input"
-                style={{ flex: 1, minWidth: 200 }}
+                style={{ flex: 1, minWidth: 180 }}
                 placeholder="Buscar por descrição ou categoria..."
                 value={txSearch}
                 onChange={(e) => setTxSearch(e.target.value)}
               />
-              <select
-                className="select"
-                value={txFilterType}
-                onChange={(e) => setTxFilterType(e.target.value as 'all' | 'income' | 'expense' | 'transfer')}
+              <button
+                type="button"
+                className="btn btn-sm"
+                aria-expanded={showTxFilters}
+                onClick={() => setShowTxFilters((v) => !v)}
               >
-                <option value="all">Todos os tipos</option>
-                <option value="income">Entradas</option>
-                <option value="expense">Saídas</option>
-                <option value="transfer">Transferências</option>
-              </select>
-              <select
-                className="select"
-                value={txFilterStatus}
-                onChange={(e) => setTxFilterStatus(e.target.value as 'all' | 'paid' | 'pending')}
-              >
-                <option value="all">Todas situações</option>
-                <option value="paid">Pagos</option>
-                <option value="pending">Pendentes</option>
-              </select>
+                <Filter size={15} />
+                Filtros
+                {(txFilterType !== 'all' || txFilterStatus !== 'all') && (
+                  <span className="tag tag-navy" style={{ padding: '1px 6px' }}>Ativo</span>
+                )}
+              </button>
             </div>
+
+            {showTxFilters && (
+              <div className="filters-bar">
+                <select
+                  className="select"
+                  value={txFilterType}
+                  onChange={(e) => setTxFilterType(e.target.value as 'all' | 'income' | 'expense' | 'transfer')}
+                >
+                  <option value="all">Todos os tipos</option>
+                  <option value="income">Entradas</option>
+                  <option value="expense">Saídas</option>
+                  <option value="transfer">Transferências</option>
+                </select>
+                <select
+                  className="select"
+                  value={txFilterStatus}
+                  onChange={(e) => setTxFilterStatus(e.target.value as 'all' | 'paid' | 'pending')}
+                >
+                  <option value="all">Todas situações</option>
+                  <option value="paid">Pagos</option>
+                  <option value="pending">Pendentes</option>
+                </select>
+              </div>
+            )}
 
             {filteredTransactions.length === 0 ? (
               <p className="section-desc">Nenhum lançamento encontrado para os filtros aplicados.</p>
@@ -1233,10 +1372,12 @@ export function App() {
               </div>
             </div>
 
-            <div className="surface">
-              <h2 className="section-title" style={{ marginBottom: 14 }}>
-                Nova Dívida / Conta Recorrente
-              </h2>
+            <CollapsiblePanel
+              title="Nova Dívida / Conta Recorrente"
+              subtitle="Cadastre contas fixas, assinaturas ou receitas periódicas"
+              defaultOpen={false}
+              summary={<span className="tag">+ Nova</span>}
+            >
               <form onSubmit={handleAddRecurrence} className="form-grid">
                 <div className="field">
                   <label htmlFor="r-title">Descrição</label>
@@ -1320,7 +1461,7 @@ export function App() {
                   </button>
                 </div>
               </form>
-            </div>
+            </CollapsiblePanel>
           </div>
         )}
 
@@ -1339,6 +1480,61 @@ export function App() {
           />
         )}
       </main>
+
+      {/* Navegação Mobile fixa na zona do polegar (alvos >= 50px) */}
+      <nav className="mobile-bottom-nav" aria-label="Navegação mobile">
+        <button
+          type="button"
+          className={`mobile-nav-btn ${activeTab === 'overview' ? 'active' : ''}`}
+          onClick={() => setActiveTab('overview')}
+        >
+          <LayoutDashboard size={19} />
+          <span>Resumo</span>
+        </button>
+        <button
+          type="button"
+          className={`mobile-nav-btn ${activeTab === 'accounts' ? 'active' : ''}`}
+          onClick={() => setActiveTab('accounts')}
+        >
+          <Landmark size={19} />
+          <span>Contas</span>
+        </button>
+        <button
+          type="button"
+          className={`mobile-nav-btn ${activeTab === 'cards' ? 'active' : ''}`}
+          onClick={() => setActiveTab('cards')}
+        >
+          <CreditCardIcon size={19} />
+          <span>Cartões</span>
+        </button>
+        <button
+          type="button"
+          className={`mobile-nav-btn ${activeTab === 'transactions' ? 'active' : ''}`}
+          onClick={() => setActiveTab('transactions')}
+        >
+          <ArrowUpRight size={19} />
+          <span>Extrato</span>
+        </button>
+        <button
+          type="button"
+          className={`mobile-nav-btn ${activeTab === 'recurrences' ? 'active' : ''}`}
+          onClick={() => setActiveTab('recurrences')}
+        >
+          <Repeat size={19} />
+          <span>Fixas</span>
+        </button>
+        <button
+          type="button"
+          className={`mobile-nav-btn ${activeTab === 'calendar' ? 'active' : ''}`}
+          onClick={() => setActiveTab('calendar')}
+        >
+          <CalendarClock size={19} />
+          <span>Agenda</span>
+          {importantPendingTxs.length > 0 && (
+            <span className="mobile-nav-dot">{importantPendingTxs.length}</span>
+          )}
+        </button>
+      </nav>
 
       {showNewTxModal && (
         <NewTransactionModal

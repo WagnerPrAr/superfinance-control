@@ -18,6 +18,7 @@ import {
   Palette,
   RotateCcw,
   SlidersHorizontal,
+  Sparkles,
   Sun,
   Trash2,
 } from 'lucide-react';
@@ -67,6 +68,12 @@ import { AnimatedCurrency } from './components/AnimatedCurrency';
 import { SwipeableTransactionRow } from './components/SwipeableTransactionRow';
 import { InfoBalloon } from './components/InfoBalloon';
 import { NetWorthSparkline } from './components/NetWorthSparkline';
+import { GeminiIntegrationModal } from './components/GeminiIntegrationModal';
+import {
+  DEFAULT_GEMINI_CONFIG,
+  loadGeminiConfig,
+  type GeminiIntegrationConfig,
+} from './services/geminiBridge';
 import { usePersistedState } from './hooks/usePersistedState';
 import { PrivacyContext } from './context/PrivacyContext';
 import {
@@ -159,6 +166,8 @@ export function App() {
   const [activeTab, setActiveTab] = usePersistedState<NavTab>('sf_active_tab_v1', 'overview');
   const [currentYm, setCurrentYm] = usePersistedState<string>('sf_current_ym_v1', getCurrentYearMonth());
   const [showNewTxModal, setShowNewTxModal] = useState(false);
+  const [showGeminiModal, setShowGeminiModal] = useState(false);
+  const [geminiConfig, setGeminiConfig] = useState<GeminiIntegrationConfig>(DEFAULT_GEMINI_CONFIG);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [justPaidId, setJustPaidId] = useState<string | null>(null);
 
@@ -264,7 +273,15 @@ export function App() {
   }, [overviewPrefs]);
 
   useEffect(() => {
+    void loadGeminiConfig().then(setGeminiConfig);
+  }, []);
+
+  useEffect(() => {
     return registerAndroidBackHandler(() => {
+      if (showGeminiModal) {
+        setShowGeminiModal(false);
+        return true;
+      }
       if (showNewTxModal) {
         setShowNewTxModal(false);
         setEditingTx(null);
@@ -276,7 +293,7 @@ export function App() {
       }
       return false;
     });
-  }, [showNewTxModal, activeTab, setActiveTab]);
+  }, [showGeminiModal, showNewTxModal, activeTab, setActiveTab]);
 
   function toggleOverviewPref(key: keyof OverviewPrefs) {
     setOverviewPrefs((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -1121,6 +1138,20 @@ export function App() {
             </div>
 
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <button
+                type="button"
+                id="btn-open-gemini"
+                className="btn"
+                style={{ minWidth: 44, minHeight: 44, padding: '0 11px' }}
+                onClick={() => {
+                  triggerHaptic('light');
+                  setShowGeminiModal(true);
+                }}
+                aria-label="Abrir integração com Gemini para lançamentos"
+                title={geminiConfig.authorized ? 'Lançar com Gemini (Integrado)' : 'Conectar ao Gemini'}
+              >
+                <Sparkles size={16} className={geminiConfig.authorized ? 'text-emerald' : 'text-navy'} />
+              </button>
               <button
                 type="button"
                 className="btn"
@@ -2322,6 +2353,23 @@ export function App() {
             setEditingTx(null);
           }}
           onSave={handleSaveNewTransactions}
+        />
+      )}
+
+      {showGeminiModal && (
+        <GeminiIntegrationModal
+          state={state}
+          currentYm={currentYm}
+          config={geminiConfig}
+          onConfigChange={setGeminiConfig}
+          onApplyTransactions={(txs) =>
+            setState((prev) => ({
+              ...prev,
+              transactions: [...txs, ...prev.transactions],
+            }))
+          }
+          onNotify={(msg) => showToast(msg)}
+          onClose={() => setShowGeminiModal(false)}
         />
       )}
 

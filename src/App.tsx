@@ -43,7 +43,7 @@ import {
 } from './services/calendarApi';
 import { CashflowChart } from './components/CashflowChart';
 import { NewTransactionModal } from './components/NewTransactionModal';
-import { CalendarAlertsPanel } from './components/CalendarAlertsPanel';
+import { CalendarAlertsPanel, type SelectedAlertRequest } from './components/CalendarAlertsPanel';
 
 type NavTab = 'overview' | 'accounts' | 'cards' | 'transactions' | 'recurrences' | 'calendar';
 
@@ -265,6 +265,63 @@ export function App() {
       }
     },
     [refreshCalendar, showToast],
+  );
+
+  const handleBatchSyncAlerts = useCallback(
+    async (items: readonly SelectedAlertRequest[]) => {
+      if (items.length === 0) return;
+      if (!calStatus?.connected) {
+        const exportedIds = new Set(items.map((i) => i.tx.id));
+        setState((prev) => ({
+          ...prev,
+          transactions: prev.transactions.map((tx) =>
+            exportedIds.has(tx.id) ? { ...tx, calendarEventId: `ics-${Date.now()}` } : tx,
+          ),
+        }));
+        showToast(
+          `Arquivo .ics com ${items.length} alerta(s) gerado! Importe no Google Calendar ou sincronize via bridge local.`,
+        );
+        return;
+      }
+
+      setCreatingAlert(true);
+      try {
+        const syncedMap = new Map<string, { id: string; link?: string }>();
+        for (const { tx, leadDays, alertDate } of items) {
+          const summary =
+            leadDays > 0
+              ? `[SuperFinance] Lembrete (${leadDays}d antes): ${tx.description} (${formatCentsBRL(tx.amountCents)})`
+              : `[SuperFinance] ${tx.description} (${formatCentsBRL(tx.amountCents)})`;
+          const resp = await createCalendarAlert({
+            summary,
+            date: alertDate,
+            description: `Lançamento: ${tx.description}\nCategoria: ${tx.category}\nData marcada: ${tx.competenceDate}\nAntecedência: ${leadDays === 0 ? 'No dia' : `${leadDays} dia(s) antes`}\nValor: ${formatCentsBRL(tx.amountCents)}`,
+            allDay: true,
+            colorId: tx.type === 'income' ? '10' : '11',
+          });
+          if (resp.event?.id) {
+            syncedMap.set(tx.id, { id: resp.event.id, link: resp.event.htmlLink });
+          }
+        }
+
+        if (syncedMap.size > 0) {
+          setState((prev) => ({
+            ...prev,
+            transactions: prev.transactions.map((tx) => {
+              const info = syncedMap.get(tx.id);
+              return info ? { ...tx, calendarEventId: info.id, calendarEventLink: info.link } : tx;
+            }),
+          }));
+        }
+        showToast(`${syncedMap.size} alerta(s) sincronizado(s) com o Google Calendar!`);
+        await refreshCalendar();
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Erro ao sincronizar alertas selecionados.');
+      } finally {
+        setCreatingAlert(false);
+      }
+    },
+    [calStatus?.connected, refreshCalendar, showToast],
   );
 
   function handleSaveNewTransactions(newTxs: Transaction[], scheduleAlert: boolean) {
@@ -1272,11 +1329,13 @@ export function App() {
           <CalendarAlertsPanel
             status={calStatus}
             events={calEvents}
+            transactions={state.transactions}
             loadingEvents={loadingCal}
             creatingAlert={creatingAlert}
             importantPendingTxs={importantPendingTxs}
             onRefresh={() => void refreshCalendar()}
             onCreateAlert={handleCreateCalendarAlert}
+            onBatchSyncAlerts={handleBatchSyncAlerts}
           />
         )}
       </main>

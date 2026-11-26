@@ -302,37 +302,69 @@ export function generateRecurringTransactionsForPeriod(
 }
 
 /**
- * Gera conteúdo .ics compatível com RFC 5545 como fallback offline
- * caso o usuário queira importar um alerta manualmente em qualquer calendário.
+ * Subtrai N dias civis de uma data ISO (YYYY-MM-DD) em UTC puro,
+ * tratando viradas de mês, ano e anos bissextos com precisão determinística.
  */
-export function buildIcsContent(params: {
+export function subtractDaysFromIsoDate(isoDate: string, daysBefore: number): string {
+  const safeDays = Math.max(0, Math.min(365, Math.trunc(daysBefore)));
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d - safeDays));
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+export interface IcsEventInput {
   uid: string;
   summary: string;
   description: string;
   date: string; // YYYY-MM-DD
-}): string {
-  const dtStart = params.date.replace(/-/g, '');
-  const [y, m, d] = params.date.split('-').map(Number);
-  const nextDt = new Date(Date.UTC(y, m - 1, d + 1));
-  const dtEnd = `${nextDt.getUTCFullYear()}${String(nextDt.getUTCMonth() + 1).padStart(2, '0')}${String(nextDt.getUTCDate()).padStart(2, '0')}`;
-  const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+  alarmDaysBefore?: number;
+}
 
-  return [
+/**
+ * Gera conteúdo .ics compatível com RFC 5545 para um ou mais eventos,
+ * como fallback offline para importação direta no Google Calendar.
+ */
+export function buildBatchIcsContent(events: readonly IcsEventInput[]): string {
+  const esc = (s: string) =>
+    s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+
+  const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//SuperFinance//Controle Financeiro//PT-BR',
-    'BEGIN:VEVENT',
-    `UID:${esc(params.uid)}@superfinance.local`,
-    `DTSTART;VALUE=DATE:${dtStart}`,
-    `DTEND;VALUE=DATE:${dtEnd}`,
-    `SUMMARY:${esc(params.summary)}`,
-    `DESCRIPTION:${esc(params.description)}`,
-    'BEGIN:VALARM',
-    'TRIGGER:-P1D',
-    'ACTION:DISPLAY',
-    `DESCRIPTION:Lembrete financeiro: ${esc(params.summary)}`,
-    'END:VALARM',
-    'END:VEVENT',
-    'END:VCALENDAR',
-  ].join('\r\n');
+  ];
+
+  for (const item of events) {
+    const dtStart = item.date.replace(/-/g, '');
+    const [y, m, d] = item.date.split('-').map(Number);
+    const nextDt = new Date(Date.UTC(y, m - 1, d + 1));
+    const dtEnd = `${nextDt.getUTCFullYear()}${String(nextDt.getUTCMonth() + 1).padStart(2, '0')}${String(nextDt.getUTCDate()).padStart(2, '0')}`;
+    const trigger =
+      item.alarmDaysBefore && item.alarmDaysBefore > 0 ? `-P${Math.trunc(item.alarmDaysBefore)}D` : '-PT1H';
+
+    lines.push(
+      'BEGIN:VEVENT',
+      `UID:${esc(item.uid)}@superfinance.local`,
+      `DTSTART;VALUE=DATE:${dtStart}`,
+      `DTEND;VALUE=DATE:${dtEnd}`,
+      `SUMMARY:${esc(item.summary)}`,
+      `DESCRIPTION:${esc(item.description)}`,
+      'BEGIN:VALARM',
+      `TRIGGER:${trigger}`,
+      'ACTION:DISPLAY',
+      `DESCRIPTION:Lembrete financeiro: ${esc(item.summary)}`,
+      'END:VALARM',
+      'END:VEVENT',
+    );
+  }
+
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+
+export function buildIcsContent(params: IcsEventInput): string {
+  return buildBatchIcsContent([params]);
 }

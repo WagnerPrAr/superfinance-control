@@ -1,4 +1,4 @@
-import { buildIcsContent } from '../domain/ledger';
+import { buildBatchIcsContent, buildIcsContent, type IcsEventInput } from '../domain/ledger';
 import type { CalendarEventItem } from '../domain/types';
 
 export interface CalendarStatusResponse {
@@ -85,18 +85,27 @@ export function buildGoogleCalendarWebUrl(params: {
   return url.toString();
 }
 
-export function downloadIcsFallback(params: {
-  uid: string;
-  summary: string;
-  description: string;
-  date: string;
-}): void {
+export function downloadIcsFallback(params: IcsEventInput): void {
   const content = buildIcsContent(params);
   const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = `alerta-superfinance-${params.date}.ics`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+export function downloadBatchIcsFallback(events: readonly IcsEventInput[]): void {
+  if (events.length === 0) return;
+  const content = buildBatchIcsContent(events);
+  const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `alertas-superfinance-${events.length}-itens.ics`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

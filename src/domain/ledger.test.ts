@@ -9,6 +9,7 @@ import {
   generateRecurringTransactionsForPeriod,
   isLeapYear,
   resolveCardStatementPeriod,
+  subtractDaysFromIsoDate,
 } from './ledger';
 import { formatCentsBRL, parseBRLToCents, splitInstallmentsCents, sumCents } from './money';
 import type { Account, CreditCard, RecurrenceRule, Transaction } from './types';
@@ -36,13 +37,21 @@ describe('Money — Aritmética exata em centavos (Zero Float)', () => {
   });
 });
 
-describe('Datas — Anos bissextos e fim de mês (29/30/31)', () => {
+describe('Datas — Anos bissextos, fim de mês e antecedência de alertas', () => {
   it('trata corretamente fevereiro em ano bissexto e não bissexto', () => {
     expect(isLeapYear(2024)).toBe(true);
     expect(isLeapYear(2026)).toBe(false);
     expect(formatIsoDate(2024, 2, 31)).toBe('2024-02-29');
     expect(formatIsoDate(2026, 2, 31)).toBe('2026-02-28');
     expect(formatIsoDate(2026, 4, 31)).toBe('2026-04-30');
+  });
+
+  it('calcula data de alerta antecipado respeitando virada de mês, ano e bissexto', () => {
+    expect(subtractDaysFromIsoDate('2026-12-01', 3)).toBe('2026-11-28');
+    expect(subtractDaysFromIsoDate('2027-01-02', 3)).toBe('2026-12-30');
+    expect(subtractDaysFromIsoDate('2024-03-01', 1)).toBe('2024-02-29');
+    expect(subtractDaysFromIsoDate('2026-03-01', 1)).toBe('2026-02-28');
+    expect(subtractDaysFromIsoDate('2026-11-30', 0)).toBe('2026-11-30');
   });
 });
 

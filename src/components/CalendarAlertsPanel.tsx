@@ -1,39 +1,183 @@
-import { useState, type FormEvent } from 'react';
-import { Bell, Calendar, CheckCircle2, Download, ExternalLink, RefreshCw, ShieldCheck } from 'lucide-react';
-import { getTodayIsoDate } from '../domain/ledger';
+import { useMemo, useState, type FormEvent } from 'react';
+import {
+  Bell,
+  Calendar,
+  CheckCircle2,
+  Clock,
+  Download,
+  ExternalLink,
+  RefreshCw,
+  ShieldCheck,
+} from 'lucide-react';
+import { getTodayIsoDate, subtractDaysFromIsoDate } from '../domain/ledger';
 import { formatCentsBRL } from '../domain/money';
 import type { CalendarEventItem, Transaction } from '../domain/types';
 import {
   buildGoogleCalendarWebUrl,
+  downloadBatchIcsFallback,
   downloadIcsFallback,
   type CalendarStatusResponse,
   type CreateAlertPayload,
 } from '../services/calendarApi';
 
+export interface SelectedAlertRequest {
+  tx: Transaction;
+  leadDays: number;
+  alertDate: string;
+}
+
 interface CalendarAlertsPanelProps {
   status: CalendarStatusResponse | null;
   events: readonly CalendarEventItem[];
+  transactions: readonly Transaction[];
   loadingEvents: boolean;
   creatingAlert: boolean;
   importantPendingTxs: readonly Transaction[];
   onRefresh: () => void;
   onCreateAlert: (payload: CreateAlertPayload, linkedTxId?: string) => Promise<void>;
+  onBatchSyncAlerts: (items: readonly SelectedAlertRequest[]) => Promise<void>;
 }
+
+const LEAD_TIME_OPTIONS: { days: number; label: string }[] = [
+  { days: 0, label: 'No dia marcado' },
+  { days: 1, label: '1 dia antes' },
+  { days: 2, label: '2 dias antes' },
+  { days: 3, label: '3 dias antes' },
+  { days: 5, label: '5 dias antes' },
+  { days: 7, label: '1 semana antes' },
+  { days: 15, label: '15 dias antes' },
+];
+
+const TX_TYPE_LABEL: Record<Transaction['type'], string> = {
+  income: 'Entrada',
+  expense: 'Saída',
+  transfer: 'Transferência',
+};
 
 export function CalendarAlertsPanel({
   status,
   events,
+  transactions,
   loadingEvents,
   creatingAlert,
   importantPendingTxs,
   onRefresh,
   onCreateAlert,
+  onBatchSyncAlerts,
 }: CalendarAlertsPanelProps) {
   const [summary, setSummary] = useState('');
   const [date, setDate] = useState(getTodayIsoDate());
   const [description, setDescription] = useState('');
   const [recurringFreq, setRecurringFreq] = useState<'NONE' | 'MONTHLY' | 'WEEKLY' | 'YEARLY'>('NONE');
   const [allDay, setAllDay] = useState(true);
+
+  // Estado da lista de últimos lançamentos sem alerta no calendário
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [defaultLeadDays, setDefaultLeadDays] = useState<number>(1);
+  const [leadDaysByTxId, setLeadDaysByTxId] = useState<Record<string, number>>({});
+
+  // Filtra os últimos lançamentos que ainda não possuem evento sincronizado no Google Calendar
+  const unsyncedRecentTxs = useMemo(() => {
+    const existingSummaries = events.map((ev) => (ev.summary || '').toLowerCase());
+    return [...transactions]
+      .filter((tx) => {
+        if (tx.calendarEventId) return false;
+        const descLower = tx.description.toLowerCase();
+        const alreadyInRemote = existingSummaries.some((s) => s.includes(descLower));
+        return !alreadyInRemote;
+      })
+      .sort((a, b) => {
+        const byCreated = b.createdAtUtc.localeCompare(a.createdAtUtc);
+        if (byCreated !== 0) return byCreated;
+        return b.competenceDate.localeCompare(a.competenceDate);
+      })
+      .slice(0, 15);
+  }, [transactions, events]);
+
+  const activeSelectedIds = useMemo(() => {
+    const visibleIds = new Set(unsyncedRecentTxs.map((t) => t.id));
+    const valid = new Set<string>();
+    for (const id of selectedIds) {
+      if (visibleIds.has(id)) valid.add(id);
+    }
+    return valid;
+  }, [selectedIds, unsyncedRecentTxs]);
+
+  const allSelected = unsyncedRecentTxs.length > 0 && activeSelectedIds.size === unsyncedRecentTxs.length;
+
+  function getLeadDays(txId: string): number {
+    return leadDaysByTxId[txId] ?? defaultLeadDays;
+  }
+
+  function toggleSelect(txId: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(txId)) {
+        next.delete(txId);
+      } else {
+        next.add(txId);
+      }
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(unsyncedRecentTxs.map((t) => t.id)));
+    }
+  }
+
+  function handleApplyDefaultLead(days: number) {
+    setDefaultLeadDays(days);
+    setLeadDaysByTxId((prev) => {
+      const next = { ...prev };
+      for (const id of activeSelectedIds) {
+        next[id] = days;
+      }
+      return next;
+    });
+  }
+
+  function buildSelectedRequests(): SelectedAlertRequest[] {
+    return unsyncedRecentTxs
+      .filter((tx) => activeSelectedIds.has(tx.id))
+      .map((tx) => {
+        const leadDays = getLeadDays(tx.id);
+        return {
+          tx,
+          leadDays,
+          alertDate: subtractDaysFromIsoDate(tx.competenceDate, leadDays),
+        };
+      });
+  }
+
+  async function handleSyncSelected() {
+    const items = buildSelectedRequests();
+    if (items.length === 0) return;
+
+    if (status?.connected) {
+      await onBatchSyncAlerts(items);
+      setSelectedIds(new Set());
+    } else {
+      // Fallback para GitHub Pages / modo sem bridge local: gera pacote .ics pronto para importar
+      downloadBatchIcsFallback(
+        items.map(({ tx, leadDays, alertDate }) => ({
+          uid: `tx-${tx.id}-${alertDate}`,
+          summary:
+            leadDays > 0
+              ? `[SuperFinance] Lembrete (${leadDays}d antes): ${tx.description} (${formatCentsBRL(tx.amountCents)})`
+              : `[SuperFinance] ${tx.description} (${formatCentsBRL(tx.amountCents)})`,
+          description: `Lançamento: ${tx.description}\nCategoria: ${tx.category}\nData marcada: ${tx.competenceDate}\nAntecedência: ${leadDays === 0 ? 'No dia' : `${leadDays} dia(s) antes`}\nValor: ${formatCentsBRL(tx.amountCents)}`,
+          date: alertDate,
+          alarmDaysBefore: 0,
+        })),
+      );
+      await onBatchSyncAlerts(items);
+      setSelectedIds(new Set());
+    }
+  }
 
   async function handleCustomSubmit(e: FormEvent) {
     e.preventDefault();
@@ -52,8 +196,11 @@ export function CalendarAlertsPanel({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Banner de isolamento do calendário */}
-      <div className="surface" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+      {/* Banner de isolamento do calendário + botão de sincronização */}
+      <div
+        className="surface"
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}
+      >
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
           <div
             style={{
@@ -75,20 +222,204 @@ export function CalendarAlertsPanel({
                 {status?.calendarName || 'SuperFinance — Alertas Financeiros (Teste)'}
               </h2>
               <span className={`tag ${status?.connected ? 'tag-emerald' : 'tag-amber'}`}>
-                {status?.connected ? 'Conectado (Calendário Separado)' : 'Modo Offline (.ics)'}
+                {status?.connected ? 'Conectado (Calendário Separado)' : 'Modo Web / .ics'}
               </span>
             </div>
             <p className="section-desc" style={{ marginTop: 4 }}>
               {status?.connected
-                ? `Isolado da sua agenda pessoal • Fuso ${status.timeZone} • Notificações criadas sem enviar convites a terceiros.`
-                : status?.message || 'Inicie via servidor local Vite para sincronizar direto com o Google Calendar ou use exportação .ics.'}
+                ? `Isolado da sua agenda pessoal • Fuso ${status.timeZone} • Alertas sincronizados diretamente via API local.`
+                : 'Selecione os lançamentos abaixo para gerar o pacote .ics ou agendar direto no Google Calendar Web.'}
             </p>
           </div>
         </div>
-        <button type="button" className="btn btn-sm" onClick={onRefresh} disabled={loadingEvents}>
-          <RefreshCw size={14} />
-          {loadingEvents ? 'Sincronizando...' : 'Atualizar Agenda'}
-        </button>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-sm" onClick={onRefresh} disabled={loadingEvents}>
+            <RefreshCw size={14} />
+            {loadingEvents ? 'Sincronizando...' : 'Sincronizar Agenda'}
+          </button>
+        </div>
+      </div>
+
+      {/* NOVO: Últimos lançamentos sem alerta no Google Calendar */}
+      <div className="surface">
+        <div className="section-header" style={{ alignItems: 'flex-start' }}>
+          <div>
+            <h3 className="section-title">Últimos Lançamentos fora do Calendário</h3>
+            <p className="section-desc">
+              Marque os lançamentos desejados, defina a antecedência de cada alerta e clique em sincronizar.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--ink-secondary)' }}>
+              <Clock size={14} />
+              <span>Padrão:</span>
+              <select
+                aria-label="Antecedência padrão dos alertas"
+                className="select"
+                style={{ padding: '6px 10px', fontSize: 12.5 }}
+                value={defaultLeadDays}
+                onChange={(e) => handleApplyDefaultLead(Number(e.target.value))}
+              >
+                {LEAD_TIME_OPTIONS.map((opt) => (
+                  <option key={opt.days} value={opt.days}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              type="button"
+              id="btn-sync-selected-alerts"
+              className="btn btn-navy btn-sm"
+              disabled={creatingAlert || activeSelectedIds.size === 0}
+              onClick={() => void handleSyncSelected()}
+            >
+              <RefreshCw size={14} />
+              {creatingAlert
+                ? 'Sincronizando...'
+                : status?.connected
+                  ? `Sincronizar no Google Calendar (${activeSelectedIds.size})`
+                  : `Sincronizar / Exportar .ics (${activeSelectedIds.size})`}
+            </button>
+          </div>
+        </div>
+
+        {unsyncedRecentTxs.length === 0 ? (
+          <p className="section-desc">
+            Todos os lançamentos recentes já estão sincronizados com o Google Calendar!
+          </p>
+        ) : (
+          <>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '8px 0 10px',
+                borderBottom: '1px solid var(--border-strong)',
+                fontSize: 12.5,
+                color: 'var(--ink-secondary)',
+              }}
+            >
+              <label className="checkbox-row" style={{ fontSize: 12.5, fontWeight: 600 }}>
+                <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} />
+                Selecionar todos ({unsyncedRecentTxs.length} lançamento(s) sem alerta)
+              </label>
+              <span>{activeSelectedIds.size} selecionado(s)</span>
+            </div>
+
+            <div className="list-stack">
+              {unsyncedRecentTxs.map((tx) => {
+                const isChecked = activeSelectedIds.has(tx.id);
+                const leadDays = getLeadDays(tx.id);
+                const alertDate = subtractDaysFromIsoDate(tx.competenceDate, leadDays);
+
+                return (
+                  <div
+                    key={tx.id}
+                    className="list-row"
+                    style={{
+                      background: isChecked ? 'rgba(36, 86, 122, 0.045)' : 'transparent',
+                      padding: '12px 10px',
+                      borderRadius: 8,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0, flex: 1 }}>
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => toggleSelect(tx.id)}
+                        aria-label={`Selecionar ${tx.description}`}
+                        style={{ marginTop: 4, width: 16, height: 16, cursor: 'pointer', flexShrink: 0 }}
+                      />
+                      <div className="list-row-main">
+                        <div className="list-row-title">
+                          {tx.description}
+                          <span
+                            className={`tag ${
+                              tx.type === 'income'
+                                ? 'tag-emerald'
+                                : tx.type === 'expense'
+                                  ? 'tag-terracotta'
+                                  : 'tag-navy'
+                            }`}
+                          >
+                            {TX_TYPE_LABEL[tx.type]}
+                          </span>
+                          {tx.important && <span className="tag tag-amber">Importante</span>}
+                        </div>
+                        <div className="list-row-sub">
+                          <span className="mono">Data marcada: {tx.competenceDate}</span>
+                          <span>•</span>
+                          <span>{tx.category}</span>
+                          <span>•</span>
+                          <span className="mono text-navy" style={{ fontWeight: 600 }}>
+                            Alerta em: {alertDate}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="list-row-right" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      <span
+                        className={`mono ${
+                          tx.type === 'income'
+                            ? 'text-emerald'
+                            : tx.type === 'expense'
+                              ? 'text-terracotta'
+                              : 'text-navy'
+                        }`}
+                        style={{ fontWeight: 700, minWidth: 100, textAlign: 'right' }}
+                      >
+                        {formatCentsBRL(tx.amountCents)}
+                      </span>
+
+                      <select
+                        aria-label={`Antecedência do alerta para ${tx.description}`}
+                        className="select"
+                        style={{ padding: '6px 10px', fontSize: 12.5 }}
+                        value={leadDays}
+                        onChange={(e) => {
+                          const days = Number(e.target.value);
+                          setLeadDaysByTxId((prev) => ({ ...prev, [tx.id]: days }));
+                          if (!isChecked) toggleSelect(tx.id);
+                        }}
+                      >
+                        {LEAD_TIME_OPTIONS.map((opt) => (
+                          <option key={opt.days} value={opt.days}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+
+                      {!status?.connected && (
+                        <a
+                          className="btn btn-sm"
+                          title="Abrir este alerta diretamente no Google Calendar Web"
+                          href={buildGoogleCalendarWebUrl({
+                            summary:
+                              leadDays > 0
+                                ? `[SuperFinance] Lembrete (${leadDays}d antes): ${tx.description} (${formatCentsBRL(tx.amountCents)})`
+                                : `[SuperFinance] ${tx.description} (${formatCentsBRL(tx.amountCents)})`,
+                            date: alertDate,
+                            description: `Lançamento: ${tx.description}\nCategoria: ${tx.category}\nData marcada: ${tx.competenceDate}\nValor: ${formatCentsBRL(tx.amountCents)}`,
+                          })}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <ExternalLink size={13} />
+                          Web
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="grid-equal">
@@ -205,7 +536,7 @@ export function CalendarAlertsPanel({
           <div className="section-header">
             <div>
               <h3 className="section-title">Contas Importantes Pendentes</h3>
-              <p className="section-desc">Dispare notificações com 1 clique no calendário separado</p>
+              <p className="section-desc">Atalho rápido para contas críticas ainda não quitadas</p>
             </div>
             <span className="tag tag-amber">{importantPendingTxs.length} pendentes</span>
           </div>
@@ -303,7 +634,7 @@ export function CalendarAlertsPanel({
 
         {events.length === 0 ? (
           <p className="section-desc">
-            Nenhum alerta agendado neste calendário ainda. Clique em "Alertar" em qualquer conta importante acima para testar a integração ao vivo.
+            Nenhum alerta listado no calendário remoto. Selecione lançamentos acima e clique em "Sincronizar" para enviar novos alertas.
           </p>
         ) : (
           <div className="list-stack">

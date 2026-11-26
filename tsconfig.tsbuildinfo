@@ -1,1 +1,0 @@
-{"root":["./src/App.tsx","./src/main.tsx","./src/components/CalendarAlertsPanel.tsx","./src/components/CashflowChart.tsx","./src/components/NewTransactionModal.tsx","./src/data/seedData.ts","./src/domain/ledger.test.ts","./src/domain/ledger.ts","./src/domain/money.ts","./src/domain/types.ts","./src/services/calendarApi.ts","./server/gcalendarBridge.ts"],"version":"5.9.3"}

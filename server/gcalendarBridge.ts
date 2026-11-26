@@ -115,8 +115,12 @@ export function gcalendarBridgePlugin(initialConfig: CalendarConfig): Plugin {
 
         try {
           if (req.method === 'GET' && url === '/api/calendar/status') {
-            const authOut = await runGcalendar(['auth', 'status']);
-            const loggedIn = authOut.includes('Logged in');
+            const { stdout, stderr } = await execFileAsync('gcalendar', ['auth', 'status'], {
+              shell: false,
+              timeout: 10000,
+            });
+            const combined = `${stdout}\n${stderr}`;
+            const loggedIn = /logged in/i.test(combined);
             if (!loggedIn) {
               return sendJson(res, 200, {
                 connected: false,
@@ -138,8 +142,8 @@ export function gcalendarBridgePlugin(initialConfig: CalendarConfig): Plugin {
 
           if (req.method === 'GET' && url === '/api/calendar/events') {
             cachedConfig = await ensureDedicatedCalendar(cachedConfig);
-            const start = addDaysFromToday(-7);
-            const end = addDaysFromToday(120);
+            const start = `${addDaysFromToday(-7)}T00:00:00Z`;
+            const end = `${addDaysFromToday(120)}T23:59:59Z`;
             const raw = await runGcalendar([
               'readonly',
               'events',
@@ -153,7 +157,7 @@ export function gcalendarBridgePlugin(initialConfig: CalendarConfig): Plugin {
               '50',
               '--json',
             ]);
-            const events = raw ? JSON.parse(raw) : [];
+            const events = raw && raw !== 'null' ? JSON.parse(raw) : [];
             return sendJson(res, 200, {
               calendarId: cachedConfig.calendarId,
               calendarName: cachedConfig.calendarName,

@@ -7,6 +7,8 @@ export interface CalendarStatusResponse {
   calendarName: string;
   timeZone: string;
   isolatedFromPersonal?: boolean;
+  connectionMode?: 'local_bridge' | 'google_oauth' | 'offline_queue';
+  outboxPendingCount?: number;
   message?: string;
 }
 

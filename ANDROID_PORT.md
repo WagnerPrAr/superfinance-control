@@ -1,24 +1,21 @@
-# Portar SuperFinance para Android (Capacitor)
+# Portabilidade Android (Capacitor 7) & Segurança da Agenda
 
-O projeto foi preparado e otimizado exclusivamente para mobile **Android**:
-- Build Vite com `base: './'` compatível com o WebView local do Capacitor (`dist/`).
-- `capacitor.config.ts` configurado (`br.com.superfinance.app`).
-- `public/manifest.webmanifest` + meta tags Android (`viewport-fit=cover`, `theme-color` dinâmica).
-- Alvos de toque mínimos de `48px` (Material Design 3), `touch-action: manipulation`, `overscroll-behavior-y: contain` e interceptação do botão físico **Voltar** do Android em `src/utils/androidBridge.ts`.
+O projeto nativo Android já está gerado e sincronizado em `android/` (`br.com.superfinance.app`, Android SDK 35, Capacitor 7):
 
-## Passos para gerar o projeto Android / APK
+- **Plugins nativos integrados:** `@capacitor/app`, `@capacitor/browser`, `@capacitor/filesystem`, `@capacitor/network`, `@capacitor/preferences` e `@capacitor/status-bar`.
+- **Segurança no Google Calendar (Conexão em Segundo Plano):**
+  - Solicita **autorização explícita** do usuário na aba **Agenda** antes de conectar automaticamente ou criar o calendário financeiro separado (`SuperFinance — Alertas Financeiros`).
+  - Usa escopo mínimo `https://www.googleapis.com/auth/calendar.app.created` (não lê nem altera eventos da agenda pessoal).
+  - Credenciais e tokens OAuth são cifrados com **AES-GCM** no sandbox privado do app (`Capacitor Preferences`, `android:allowBackup="false"`), nunca gravados em `.txt` ou `.md`.
+  - Para fila offline e auditoria em segundo plano, mantém o arquivo sanitizado `superfinance-calendar-sync.md` em `Directory.Data` (sandbox privado do app), contendo somente datas, títulos e status dos alertas.
+- **Deep Link OAuth 2.0 PKCE Android:** `br.com.superfinance.app:/oauth2redirect` configurado em `android/app/src/main/AndroidManifest.xml`.
+
+## Comandos de Build & APK
 
 ```bash
-# 1. Instalar Capacitor CLI e runtime Android
-npm install @capacitor/core @capacitor/cli @capacitor/android
+# Validar testes, build Vite e sincronizar bundle para android/
+npm test && npm run cap:sync
 
-# 2. Gerar build de produção validado
-npm test && npm run build
-
-# 3. Criar a pasta android/ e sincronizar o bundle
-npx cap add android
-npx cap sync android
-
-# 4. Abrir no Android Studio para gerar APK/AAB ou rodar no emulador/aparelho
-npx cap open android
+# Gerar APK de depuração Android
+npm run android:apk
 ```

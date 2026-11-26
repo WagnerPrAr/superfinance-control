@@ -42,12 +42,20 @@ import type {
 } from './domain/types';
 import {
   buildGoogleCalendarWebUrl,
-  createCalendarAlert,
-  fetchCalendarEvents,
-  fetchCalendarStatus,
   type CalendarStatusResponse,
   type CreateAlertPayload,
 } from './services/calendarApi';
+import {
+  DEFAULT_CALENDAR_CONSENT,
+  type CalendarOutboxItem,
+  type CalendarSyncConsent,
+} from './services/calendarSyncLedger';
+import {
+  authorizeAndConnectSeparateCalendar,
+  revokeAndDisconnectCalendar,
+  runBackgroundCalendarSync,
+  type SyncCycleResult,
+} from './services/calendarSyncEngine';
 import { CashflowChart } from './components/CashflowChart';
 import { CategoryChart } from './components/CategoryChart';
 import { NewTransactionModal } from './components/NewTransactionModal';
@@ -58,7 +66,12 @@ import { SwipeableTransactionRow } from './components/SwipeableTransactionRow';
 import { InfoBalloon } from './components/InfoBalloon';
 import { NetWorthSparkline } from './components/NetWorthSparkline';
 import { usePersistedState } from './hooks/usePersistedState';
-import { registerAndroidBackHandler, syncAndroidThemeColor, type ResolvedTheme } from './utils/androidBridge';
+import {
+  registerAndroidBackHandler,
+  registerBackgroundSyncListeners,
+  syncAndroidThemeColor,
+  type ResolvedTheme,
+} from './utils/androidBridge';
 
 type NavTab = 'overview' | 'accounts' | 'cards' | 'transactions' | 'recurrences' | 'calendar';
 type ThemePref = 'auto' | ResolvedTheme;
@@ -205,11 +218,16 @@ export function App() {
   const [newRecDay, setNewRecDay] = usePersistedState<number>('sf_rec_draft_day_v1', 10);
   const [newRecImportant, setNewRecImportant] = usePersistedState<boolean>('sf_rec_draft_imp_v1', true);
 
-  // Google Calendar Bridge State
+  // Google Calendar Bridge & Background Sync State
   const [calStatus, setCalStatus] = useState<CalendarStatusResponse | null>(null);
   const [calEvents, setCalEvents] = useState<CalendarEventItem[]>([]);
+  const [calConsent, setCalConsent] = useState<CalendarSyncConsent>(DEFAULT_CALENDAR_CONSENT);
+  const [calOutbox, setCalOutbox] = useState<CalendarOutboxItem[]>([]);
+  const [calMarkdownLog, setCalMarkdownLog] = useState<string>('');
+  const [calSandboxPath, setCalSandboxPath] = useState<string>('');
   const [loadingCal, setLoadingCal] = useState(false);
   const [creatingAlert, setCreatingAlert] = useState(false);
+  const [authorizingCal, setAuthorizingCal] = useState(false);
 
   // Toast
   const [toast, setToast] = useState<{ message: string; link?: string } | null>(null);
@@ -259,31 +277,65 @@ export function App() {
     setOverviewPrefs((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
+  const applySyncResult = useCallback((res: SyncCycleResult) => {
+    setCalStatus(res.status);
+    setCalEvents(res.events);
+    setCalConsent(res.consent);
+    setCalOutbox(res.outbox);
+    setCalMarkdownLog(res.markdownLog);
+    setCalSandboxPath(res.sandboxLogPath);
+
+    if (res.syncedMap.size > 0) {
+      setState((prev) => ({
+        ...prev,
+        transactions: prev.transactions.map((tx) => {
+          const info = res.syncedMap.get(tx.id);
+          return info ? { ...tx, calendarEventId: info.id, calendarEventLink: info.link } : tx;
+        }),
+      }));
+    }
+  }, []);
+
   const refreshCalendar = useCallback(async () => {
     setLoadingCal(true);
     try {
-      const st = await fetchCalendarStatus();
-      setCalStatus(st);
-      if (st.connected) {
-        const ev = await fetchCalendarEvents();
-        setCalEvents(ev.events);
-      }
+      const res = await runBackgroundCalendarSync();
+      applySyncResult(res);
     } catch {
       setCalStatus({
         connected: false,
         calendarId: null,
-        calendarName: 'SuperFinance — Alertas Financeiros (Teste)',
+        calendarName: DEFAULT_CALENDAR_CONSENT.dedicatedCalendarName,
         timeZone: 'America/Sao_Paulo',
-        message: 'Bridge local não detectada (use exportação .ics ou execute via Vite dev server).',
+        connectionMode: 'offline_queue',
+        message: 'Fila offline ativa — sincronização será retomada em segundo plano quando conectado.',
       });
     } finally {
       setLoadingCal(false);
     }
-  }, []);
+  }, [applySyncResult]);
 
   useEffect(() => {
     void refreshCalendar();
   }, [refreshCalendar]);
+
+  useEffect(() => {
+    const cleanup = registerBackgroundSyncListeners(() => {
+      if (calConsent.authorizedAutoConnect && calConsent.authorizedCreateSeparateCalendar) {
+        void refreshCalendar();
+      }
+    });
+    if (!calConsent.authorizedAutoConnect || !calConsent.authorizedCreateSeparateCalendar) {
+      return cleanup;
+    }
+    const timer = window.setInterval(() => {
+      void refreshCalendar();
+    }, 90_000);
+    return () => {
+      cleanup();
+      window.clearInterval(timer);
+    };
+  }, [calConsent.authorizedAutoConnect, calConsent.authorizedCreateSeparateCalendar, refreshCalendar]);
 
   // Cálculos derivados (100% em centavos inteiros)
   const accountBalances = useMemo(() => {
@@ -359,39 +411,78 @@ export function App() {
   }, [state.transactions, txFilterType, txFilterStatus, txSearch]);
 
   // Ações
+  const handleAuthorizeCalendar = useCallback(
+    async (params: { oauthClientId: string; calendarName: string }) => {
+      setAuthorizingCal(true);
+      try {
+        const res = await authorizeAndConnectSeparateCalendar(params);
+        applySyncResult(res);
+        showToast(
+          res.status.connected
+            ? `Calendário separado "${res.status.calendarName}" conectado em segundo plano!`
+            : 'Autorização salva! Conexão será concluída assim que estiver online.',
+        );
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Não foi possível autorizar o Google Calendar.');
+      } finally {
+        setAuthorizingCal(false);
+      }
+    },
+    [applySyncResult, showToast],
+  );
+
+  const handleRevokeCalendar = useCallback(async () => {
+    setAuthorizingCal(true);
+    try {
+      const res = await revokeAndDisconnectCalendar();
+      applySyncResult(res);
+      showToast('Autorização revogada e tokens removidos do dispositivo.');
+    } finally {
+      setAuthorizingCal(false);
+    }
+  }, [applySyncResult, showToast]);
+
   const handleCreateCalendarAlert = useCallback(
     async (payload: CreateAlertPayload, linkedTxId?: string) => {
       setCreatingAlert(true);
       try {
-        const resp = await createCalendarAlert(payload);
-        if (linkedTxId && resp.event?.id) {
-          setState((prev) => ({
-            ...prev,
-            transactions: prev.transactions.map((tx) =>
-              tx.id === linkedTxId
-                ? { ...tx, calendarEventId: resp.event.id, calendarEventLink: resp.event.htmlLink }
-                : tx,
-            ),
-          }));
+        const localId = `alert-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        const res = await runBackgroundCalendarSync({
+          extraIncoming: [
+            {
+              localId,
+              txId: linkedTxId,
+              summary: payload.summary,
+              date: payload.date,
+              description: payload.description || '',
+              recurringFreq: payload.recurringFreq,
+              allDay: payload.allDay,
+              colorId: payload.colorId,
+            },
+          ],
+        });
+        applySyncResult(res);
+        const syncedItem = res.outbox.find((o) => o.localId === localId && o.status === 'synced');
+        if (syncedItem) {
+          showToast(`Alerta criado em "${res.status.calendarName}"!`, syncedItem.remoteEventLink);
+        } else {
+          showToast('Alerta salvo na fila segura para sincronização automática em segundo plano.');
         }
-        showToast(
-          `Alerta criado em "${resp.calendarName}"!`,
-          resp.event?.htmlLink,
-        );
-        await refreshCalendar();
       } catch (err) {
-        showToast(err instanceof Error ? err.message : 'Erro ao criar alerta no Google Calendar.');
+        showToast(err instanceof Error ? err.message : 'Erro ao enfileirar alerta para o Google Calendar.');
       } finally {
         setCreatingAlert(false);
       }
     },
-    [refreshCalendar, showToast],
+    [applySyncResult, showToast],
   );
 
   const handleBatchSyncAlerts = useCallback(
     async (items: readonly SelectedAlertRequest[]) => {
       if (items.length === 0) return;
-      if (!calStatus?.connected) {
+      const isAuthorized = calConsent.authorizedAutoConnect && calConsent.authorizedCreateSeparateCalendar;
+
+      if (!calStatus?.connected && !isAuthorized) {
         const exportedIds = new Set(items.map((i) => i.tx.id));
         setState((prev) => ({
           ...prev,
@@ -400,49 +491,44 @@ export function App() {
           ),
         }));
         showToast(
-          `Arquivo .ics com ${items.length} alerta(s) gerado! Importe no Google Calendar ou sincronize via bridge local.`,
+          `Arquivo .ics com ${items.length} alerta(s) gerado! Autorize a conexão automática na aba Agenda para sincronizar em segundo plano.`,
         );
         return;
       }
 
       setCreatingAlert(true);
       try {
-        const syncedMap = new Map<string, { id: string; link?: string }>();
-        for (const { tx, leadDays, alertDate } of items) {
-          const summary =
+        const incoming = items.map(({ tx, leadDays, alertDate }) => ({
+          localId: `batch-${tx.id}-${alertDate}`,
+          txId: tx.id,
+          summary:
             leadDays > 0
               ? `[SuperFinance] Lembrete (${leadDays}d antes): ${tx.description} (${formatCentsBRL(tx.amountCents)})`
-              : `[SuperFinance] ${tx.description} (${formatCentsBRL(tx.amountCents)})`;
-          const resp = await createCalendarAlert({
-            summary,
-            date: alertDate,
-            description: `Lançamento: ${tx.description}\nCategoria: ${tx.category}\nData marcada: ${tx.competenceDate}\nAntecedência: ${leadDays === 0 ? 'No dia' : `${leadDays} dia(s) antes`}\nValor: ${formatCentsBRL(tx.amountCents)}`,
-            allDay: true,
-            colorId: tx.type === 'income' ? '10' : '11',
-          });
-          if (resp.event?.id) {
-            syncedMap.set(tx.id, { id: resp.event.id, link: resp.event.htmlLink });
-          }
-        }
+              : `[SuperFinance] ${tx.description} (${formatCentsBRL(tx.amountCents)})`,
+          date: alertDate,
+          description: `Lançamento: ${tx.description}\nCategoria: ${tx.category}\nData marcada: ${tx.competenceDate}\nAntecedência: ${leadDays === 0 ? 'No dia' : `${leadDays} dia(s) antes`}\nValor: ${formatCentsBRL(tx.amountCents)}`,
+          allDay: true,
+          colorId: tx.type === 'income' ? '10' : '11',
+          leadDays,
+        }));
 
-        if (syncedMap.size > 0) {
-          setState((prev) => ({
-            ...prev,
-            transactions: prev.transactions.map((tx) => {
-              const info = syncedMap.get(tx.id);
-              return info ? { ...tx, calendarEventId: info.id, calendarEventLink: info.link } : tx;
-            }),
-          }));
+        const res = await runBackgroundCalendarSync({ extraIncoming: incoming });
+        applySyncResult(res);
+
+        if (res.syncedMap.size > 0) {
+          showToast(`${res.syncedMap.size} alerta(s) sincronizado(s) com "${res.status.calendarName}"!`);
+        } else {
+          showToast(
+            `${items.length} alerta(s) salvo(s) com segurança na fila para sincronização automática em segundo plano.`,
+          );
         }
-        showToast(`${syncedMap.size} alerta(s) sincronizado(s) com o Google Calendar!`);
-        await refreshCalendar();
       } catch (err) {
         showToast(err instanceof Error ? err.message : 'Erro ao sincronizar alertas selecionados.');
       } finally {
         setCreatingAlert(false);
       }
     },
-    [calStatus?.connected, refreshCalendar, showToast],
+    [applySyncResult, calConsent.authorizedAutoConnect, calConsent.authorizedCreateSeparateCalendar, calStatus?.connected, showToast],
   );
 
   function centsToEditableStr(cents: number): string {
@@ -2096,10 +2182,17 @@ export function App() {
             status={calStatus}
             events={calEvents}
             transactions={state.transactions}
+            consent={calConsent}
+            outbox={calOutbox}
+            markdownLog={calMarkdownLog}
+            sandboxLogPath={calSandboxPath}
             loadingEvents={loadingCal}
             creatingAlert={creatingAlert}
+            authorizingCalendar={authorizingCal}
             importantPendingTxs={importantPendingTxs}
             onRefresh={() => void refreshCalendar()}
+            onAuthorizeCalendar={handleAuthorizeCalendar}
+            onRevokeCalendar={handleRevokeCalendar}
             onCreateAlert={handleCreateCalendarAlert}
             onBatchSyncAlerts={handleBatchSyncAlerts}
           />

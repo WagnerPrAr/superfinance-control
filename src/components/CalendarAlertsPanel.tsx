@@ -1,4 +1,4 @@
-import { useMemo, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   Bell,
   Calendar,
@@ -6,6 +6,8 @@ import {
   Clock,
   Download,
   ExternalLink,
+  FileText,
+  Lock,
   RefreshCw,
   ShieldCheck,
 } from 'lucide-react';
@@ -19,6 +21,8 @@ import {
   type CalendarStatusResponse,
   type CreateAlertPayload,
 } from '../services/calendarApi';
+import type { CalendarOutboxItem, CalendarSyncConsent } from '../services/calendarSyncLedger';
+import { downloadSanitizedMarkdownLog } from '../services/secureStorage';
 import { CollapsiblePanel } from './CollapsiblePanel';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { AnimatedCurrency } from './AnimatedCurrency';
@@ -34,10 +38,17 @@ interface CalendarAlertsPanelProps {
   status: CalendarStatusResponse | null;
   events: readonly CalendarEventItem[];
   transactions: readonly Transaction[];
+  consent: CalendarSyncConsent;
+  outbox: readonly CalendarOutboxItem[];
+  markdownLog: string;
+  sandboxLogPath: string;
   loadingEvents: boolean;
   creatingAlert: boolean;
+  authorizingCalendar: boolean;
   importantPendingTxs: readonly Transaction[];
   onRefresh: () => void;
+  onAuthorizeCalendar: (params: { oauthClientId: string; calendarName: string }) => Promise<void>;
+  onRevokeCalendar: () => Promise<void>;
   onCreateAlert: (payload: CreateAlertPayload, linkedTxId?: string) => Promise<void>;
   onBatchSyncAlerts: (items: readonly SelectedAlertRequest[]) => Promise<void>;
 }
@@ -62,10 +73,17 @@ export function CalendarAlertsPanel({
   status,
   events,
   transactions,
+  consent,
+  outbox,
+  markdownLog,
+  sandboxLogPath,
   loadingEvents,
   creatingAlert,
+  authorizingCalendar,
   importantPendingTxs,
   onRefresh,
+  onAuthorizeCalendar,
+  onRevokeCalendar,
   onCreateAlert,
   onBatchSyncAlerts,
 }: CalendarAlertsPanelProps) {
@@ -77,6 +95,31 @@ export function CalendarAlertsPanel({
     'NONE',
   );
   const [allDay, setAllDay] = usePersistedState('sf_cal_draft_allday_v1', true);
+
+  // Consentimento explícito de conexão automática e criação de calendário separado
+  const [allowAutoConnect, setAllowAutoConnect] = useState(consent.authorizedAutoConnect);
+  const [allowSeparateCalendar, setAllowSeparateCalendar] = useState(consent.authorizedCreateSeparateCalendar);
+  const [draftClientId, setDraftClientId] = useState(consent.oauthClientId);
+  const [draftCalendarName, setDraftCalendarName] = useState(consent.dedicatedCalendarName);
+  const [showMdPreview, setShowMdPreview] = useState(false);
+
+  useEffect(() => {
+    setAllowAutoConnect(consent.authorizedAutoConnect);
+    setAllowSeparateCalendar(consent.authorizedCreateSeparateCalendar);
+    if (consent.oauthClientId) setDraftClientId(consent.oauthClientId);
+    if (consent.dedicatedCalendarName) setDraftCalendarName(consent.dedicatedCalendarName);
+  }, [
+    consent.authorizedAutoConnect,
+    consent.authorizedCreateSeparateCalendar,
+    consent.oauthClientId,
+    consent.dedicatedCalendarName,
+  ]);
+
+  const isAuthorized = consent.authorizedAutoConnect && consent.authorizedCreateSeparateCalendar;
+  const pendingOutboxCount = useMemo(
+    () => outbox.filter((item) => item.status !== 'synced').length,
+    [outbox],
+  );
 
   // Estado persistido da lista de últimos lançamentos sem alerta no calendário
   const [selectedIdList, setSelectedIdList] = usePersistedState<string[]>('sf_cal_selected_ids_v1', []);
@@ -160,7 +203,7 @@ export function CalendarAlertsPanel({
     const items = buildSelectedRequests();
     if (items.length === 0) return;
 
-    if (status?.connected) {
+    if (status?.connected || isAuthorized) {
       await onBatchSyncAlerts(items);
       setSelectedIdList([]);
     } else {
@@ -198,47 +241,199 @@ export function CalendarAlertsPanel({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Banner de isolamento do calendário + botão de sincronização */}
-      <div
-        className="surface"
-        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}
-      >
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-          <div
-            style={{
-              width: 42,
-              height: 42,
-              borderRadius: 12,
-              background: status?.connected ? 'var(--accent-emerald-soft)' : 'var(--accent-amber-soft)',
-              color: status?.connected ? 'var(--accent-emerald)' : 'var(--accent-amber)',
-              display: 'grid',
-              placeItems: 'center',
-              flexShrink: 0,
-            }}
-          >
-            <ShieldCheck size={22} />
-          </div>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <h2 className="section-title">
-                {status?.calendarName || 'SuperFinance — Alertas Financeiros (Teste)'}
-              </h2>
-              <span className={`tag ${status?.connected ? 'tag-emerald' : 'tag-amber'}`}>
-                {status?.connected ? 'Conectado (Calendário Separado)' : 'Modo Web / .ics'}
-              </span>
+      {/* Banner de isolamento do calendário + autorização de conexão automática em segundo plano */}
+      <div className="surface" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+            <div
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: 12,
+                background: status?.connected ? 'var(--accent-emerald-soft)' : 'var(--accent-amber-soft)',
+                color: status?.connected ? 'var(--accent-emerald)' : 'var(--accent-amber)',
+                display: 'grid',
+                placeItems: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <ShieldCheck size={22} />
             </div>
-            <p className="section-desc" style={{ marginTop: 4 }}>
-              {status?.connected
-                ? `Isolado da sua agenda pessoal • Fuso ${status.timeZone} • Alertas sincronizados diretamente via API local.`
-                : 'Selecione os lançamentos abaixo para gerar o pacote .ics ou agendar direto no Google Calendar Web.'}
-            </p>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <h2 className="section-title">
+                  {status?.calendarName || draftCalendarName || 'SuperFinance — Alertas Financeiros'}
+                </h2>
+                <span className={`tag ${status?.connected ? 'tag-emerald' : isAuthorized ? 'tag-navy' : 'tag-amber'}`}>
+                  {status?.connected
+                    ? 'Conectado em Segundo Plano'
+                    : isAuthorized
+                      ? `Fila Segura (${pendingOutboxCount} pendente)`
+                      : 'Aguardando Autorização'}
+                </span>
+                <InfoBalloon
+                  title="Segurança dos Dados & Log .md"
+                  text="Tokens OAuth nunca são gravados em .txt ou .md: ficam cifrados em AES-GCM no armazenamento privado do aparelho (Capacitor Preferences) com escopo mínimo calendar.app.created."
+                  extraDetails={`Para atualização offline e auditoria em segundo plano, o app mantém um registro sanitizado (${sandboxLogPath || 'superfinance-calendar-sync.md'}) apenas com datas e títulos dos lembretes, sem senhas ou credenciais.`}
+                  align="left"
+                />
+              </div>
+              <p className="section-desc" style={{ marginTop: 4 }}>
+                {status?.connected
+                  ? `Calendário separado da agenda pessoal • Fuso ${status.timeZone} • Sincronização automática em fundo ativa.`
+                  : status?.message ||
+                    'Autorize abaixo a conexão automática em segundo plano e a criação de um calendário exclusivo para suas finanças.'}
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-sm" onClick={onRefresh} disabled={loadingEvents}>
+              <RefreshCw size={14} />
+              {loadingEvents ? 'Sincronizando...' : 'Sincronizar Agenda'}
+            </button>
+            {markdownLog && (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setShowMdPreview((v) => !v)}
+                  aria-expanded={showMdPreview}
+                >
+                  <FileText size={14} />
+                  {showMdPreview ? 'Ocultar .md' : 'Ver Fila .md'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => downloadSanitizedMarkdownLog(markdownLog)}
+                >
+                  <Download size={14} />
+                  Baixar .md
+                </button>
+              </>
+            )}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button type="button" className="btn btn-sm" onClick={onRefresh} disabled={loadingEvents}>
-            <RefreshCw size={14} />
-            {loadingEvents ? 'Sincronizando...' : 'Sincronizar Agenda'}
-          </button>
+
+        {/* Painel de Autorização Explícita do Usuário */}
+        <div
+          style={{
+            borderTop: '1px solid var(--border-subtle)',
+            paddingTop: 12,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+          }}
+        >
+          {!isAuthorized ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 700, color: 'var(--ink-primary)' }}>
+                <Lock size={14} />
+                Solicitação de Autorização para Conexão Automática em Segundo Plano
+              </div>
+              <label className="checkbox-row" style={{ fontSize: 13 }}>
+                <input
+                  type="checkbox"
+                  checked={allowAutoConnect}
+                  onChange={(e) => setAllowAutoConnect(e.target.checked)}
+                />
+                Autorizo o aplicativo a se conectar automaticamente em segundo plano ao abrir ou retomar conexão.
+              </label>
+              <label className="checkbox-row" style={{ fontSize: 13 }}>
+                <input
+                  type="checkbox"
+                  checked={allowSeparateCalendar}
+                  onChange={(e) => setAllowSeparateCalendar(e.target.checked)}
+                />
+                Autorizo criar um calendário separado exclusivo para finanças (sem acesso aos eventos da agenda pessoal).
+              </label>
+
+              <div className="form-grid" style={{ marginTop: 2 }}>
+                <div className="field">
+                  <label htmlFor="cal-dedicated-name">Nome do Novo Calendário Financeiro</label>
+                  <input
+                    id="cal-dedicated-name"
+                    className="input"
+                    value={draftCalendarName}
+                    onChange={(e) => setDraftCalendarName(e.target.value)}
+                    placeholder="SuperFinance — Alertas Financeiros"
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="cal-oauth-client">Google OAuth Client ID (Android / Web Direta)</label>
+                  <input
+                    id="cal-oauth-client"
+                    className="input mono"
+                    value={draftClientId}
+                    onChange={(e) => setDraftClientId(e.target.value)}
+                    placeholder="Opcional no servidor local • xxxx.apps.googleusercontent.com"
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span className="section-desc" style={{ fontSize: 12 }}>
+                  Armazenamento cifrado (AES-GCM) + registro sanitizado <code>.md</code> sem credenciais.
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-navy btn-sm"
+                  disabled={!allowAutoConnect || !allowSeparateCalendar || authorizingCalendar}
+                  onClick={() =>
+                    void onAuthorizeCalendar({
+                      oauthClientId: draftClientId,
+                      calendarName: draftCalendarName,
+                    })
+                  }
+                >
+                  <ShieldCheck size={14} />
+                  {authorizingCalendar ? 'Autorizando...' : 'Autorizar e Criar Calendário Separado'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5, color: 'var(--ink-secondary)' }}>
+                <Lock size={14} className="text-emerald" />
+                <span>
+                  Autorização ativa desde{' '}
+                  <strong className="mono">{consent.authorizedAtUtc?.slice(0, 10) ?? 'hoje'}</strong>
+                  {consent.lastBackgroundSyncUtc
+                    ? ` • Último sync em fundo: ${consent.lastBackgroundSyncUtc.slice(0, 19).replace('T', ' ')} UTC`
+                    : ''}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={authorizingCalendar}
+                onClick={() => void onRevokeCalendar()}
+              >
+                Revogar Autorização
+              </button>
+            </div>
+          )}
+
+          {showMdPreview && markdownLog && (
+            <pre
+              className="mono"
+              style={{
+                margin: 0,
+                padding: 12,
+                borderRadius: 10,
+                border: '1px solid var(--border-subtle)',
+                background: 'var(--bg-muted)',
+                fontSize: 11.5,
+                lineHeight: 1.5,
+                maxHeight: 220,
+                overflow: 'auto',
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {markdownLog}
+            </pre>
+          )}
         </div>
       </div>
 
@@ -290,7 +485,9 @@ export function CalendarAlertsPanel({
                 ? 'Sincronizando...'
                 : status?.connected
                   ? `Sincronizar no Google Calendar (${activeSelectedIds.size})`
-                  : `Sincronizar / Exportar .ics (${activeSelectedIds.size})`}
+                  : isAuthorized
+                    ? `Enfileirar Sync em Fundo (${activeSelectedIds.size})`
+                    : `Sincronizar / Exportar .ics (${activeSelectedIds.size})`}
             </button>
           </div>
         </div>
@@ -501,10 +698,10 @@ export function CalendarAlertsPanel({
             )}
 
             <div style={{ display: 'flex', gap: 10, marginTop: 4, flexWrap: 'wrap' }}>
-              {status?.connected ? (
+              {status?.connected || isAuthorized ? (
                 <button type="submit" className="btn btn-navy" disabled={creatingAlert}>
                   <Bell size={15} />
-                  {creatingAlert ? 'Agendando...' : 'Enviar para Google Calendar'}
+                  {creatingAlert ? 'Agendando...' : status?.connected ? 'Enviar para Google Calendar' : 'Salvar na Fila em Fundo'}
                 </button>
               ) : (
                 <a
@@ -584,7 +781,7 @@ export function CalendarAlertsPanel({
                         <ExternalLink size={13} />
                         Ver
                       </a>
-                    ) : status?.connected ? (
+                    ) : status?.connected || isAuthorized ? (
                       <button
                         type="button"
                         className="btn btn-sm btn-navy"

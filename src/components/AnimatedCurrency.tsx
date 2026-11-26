@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { formatCentsBRL } from '../domain/money';
+import { usePrivacyMode } from '../context/PrivacyContext';
 
 interface AnimatedCurrencyProps {
   cents: number;
@@ -23,6 +24,7 @@ export function AnimatedCurrency({
   durationMs = 950,
   animateOnMount = true,
 }: AnimatedCurrencyProps) {
+  const privacyMode = usePrivacyMode();
   const [displayCents, setDisplayCents] = useState(() => (animateOnMount && mode === 'count' ? 0 : cents));
   const [slideKey, setSlideKey] = useState(0);
   const [slideDir, setSlideDir] = useState<'up' | 'down'>('up');
@@ -102,6 +104,14 @@ export function AnimatedCurrency({
       cancelAnimationFrame(rafId);
     };
   }, [cents, mode, durationMs, animateOnMount]);
+
+  if (privacyMode) {
+    return (
+      <span className={className} aria-label="Valor oculto pelo modo privacidade">
+        R$&nbsp;•••••
+      </span>
+    );
+  }
 
   if (mode === 'slide') {
     return (

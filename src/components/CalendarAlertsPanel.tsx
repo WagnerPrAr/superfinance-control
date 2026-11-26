@@ -4,6 +4,7 @@ import {
   Calendar,
   CheckCircle2,
   Clock,
+  Copy,
   Download,
   ExternalLink,
   FileText,
@@ -371,6 +372,40 @@ export function CalendarAlertsPanel({
                   />
                 </div>
               </div>
+
+              <details
+                style={{
+                  fontSize: 12,
+                  color: 'var(--ink-secondary)',
+                  background: 'var(--bg-muted)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 10,
+                  padding: '8px 12px',
+                }}
+              >
+                <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--ink-primary)' }}>
+                  Como configurar o OAuth Client ID para Android (3 passos)
+                </summary>
+                <ol style={{ margin: '8px 0 8px 18px', padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <li>No Google Cloud Console, ative a <strong>Google Calendar API</strong> e crie um cliente OAuth.</li>
+                  <li>
+                    Adicione o Redirect URI nativo:{' '}
+                    <code className="mono">br.com.superfinance.app:/oauth2redirect</code>
+                  </li>
+                  <li>Cole o Client ID acima (escopo mínimo usado: <code>calendar.app.created</code>).</li>
+                </ol>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  style={{ minHeight: 34, fontSize: 11.5 }}
+                  onClick={() => {
+                    void navigator.clipboard?.writeText('br.com.superfinance.app:/oauth2redirect');
+                  }}
+                >
+                  <Copy size={12} />
+                  Copiar Redirect URI
+                </button>
+              </details>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span className="section-desc" style={{ fontSize: 12 }}>

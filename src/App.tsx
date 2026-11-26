@@ -6,6 +6,8 @@ import {
   CalendarClock,
   Check,
   CreditCard as CreditCardIcon,
+  Eye,
+  EyeOff,
   Filter,
   Landmark,
   LayoutDashboard,
@@ -66,10 +68,12 @@ import { SwipeableTransactionRow } from './components/SwipeableTransactionRow';
 import { InfoBalloon } from './components/InfoBalloon';
 import { NetWorthSparkline } from './components/NetWorthSparkline';
 import { usePersistedState } from './hooks/usePersistedState';
+import { PrivacyContext } from './context/PrivacyContext';
 import {
   registerAndroidBackHandler,
   registerBackgroundSyncListeners,
   syncAndroidThemeColor,
+  triggerHaptic,
   type ResolvedTheme,
 } from './utils/androidBridge';
 
@@ -161,6 +165,7 @@ export function App() {
   // Preferências de exibição escolhidas pelo usuário (persistidas entre telas e reloads)
   const [overviewPrefs, setOverviewPrefs] = useState<OverviewPrefs>(loadOverviewPrefs);
   const [themePref, setThemePref] = usePersistedState<ThemePref>('sf_theme_pref_v1', 'auto');
+  const [privacyMode, setPrivacyMode] = usePersistedState<boolean>('sf_privacy_mode_v1', false);
   const [systemDark, setSystemDark] = useState<boolean>(() =>
     typeof window !== 'undefined' && typeof window.matchMedia === 'function'
       ? window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -932,8 +937,15 @@ export function App() {
     themePref === 'auto' ? (systemDark ? 'obsidian-oled' : 'nordic-light') : themePref;
   const isDarkTheme = resolvedTheme !== 'nordic-light';
 
+  const todayYm = getCurrentYearMonth();
   const handleToggleDayNight = () => {
+    triggerHaptic('light');
     setThemePref(isDarkTheme ? 'nordic-light' : 'obsidian-oled');
+  };
+
+  const handleSelectTab = (tab: NavTab) => {
+    triggerHaptic('light');
+    setActiveTab(tab);
   };
 
   useEffect(() => {
@@ -944,6 +956,7 @@ export function App() {
   }, [monthMood, resolvedTheme]);
 
   return (
+    <PrivacyContext.Provider value={privacyMode}>
     <div className="app-shell" data-month-mood={monthMood} data-theme={resolvedTheme}>
       <aside className="sidebar" aria-label="Navegação principal">
         <div className="brand">
@@ -1068,7 +1081,10 @@ export function App() {
               <button
                 type="button"
                 className="btn btn-sm btn-icon-only"
-                onClick={() => setCurrentYm((ym) => shiftYearMonth(ym, -1))}
+                onClick={() => {
+                  triggerHaptic('light');
+                  setCurrentYm((ym) => shiftYearMonth(ym, -1));
+                }}
                 aria-label="Mês anterior"
               >
                 ←
@@ -1081,14 +1097,44 @@ export function App() {
               <button
                 type="button"
                 className="btn btn-sm btn-icon-only"
-                onClick={() => setCurrentYm((ym) => shiftYearMonth(ym, 1))}
+                onClick={() => {
+                  triggerHaptic('light');
+                  setCurrentYm((ym) => shiftYearMonth(ym, 1));
+                }}
                 aria-label="Próximo mês"
               >
                 →
               </button>
+              {currentYm !== todayYm && (
+                <button
+                  type="button"
+                  className="chip-toggle active"
+                  style={{ minHeight: 36, padding: '4px 10px', fontSize: 12 }}
+                  onClick={() => {
+                    triggerHaptic('light');
+                    setCurrentYm(todayYm);
+                  }}
+                >
+                  Hoje
+                </button>
+              )}
             </div>
 
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <button
+                type="button"
+                className="btn"
+                style={{ minWidth: 44, minHeight: 44, padding: '0 11px' }}
+                onClick={() => {
+                  triggerHaptic('light');
+                  setPrivacyMode((v) => !v);
+                }}
+                aria-label={privacyMode ? 'Mostrar valores financeiros' : 'Ocultar valores financeiros'}
+                aria-pressed={privacyMode}
+                title={privacyMode ? 'Mostrar valores' : 'Modo Privacidade (ocultar valores)'}
+              >
+                {privacyMode ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
               <button
                 type="button"
                 className="btn"
@@ -1114,7 +1160,10 @@ export function App() {
                 type="button"
                 id="btn-new-transaction"
                 className="btn btn-primary"
-                onClick={() => setShowNewTxModal(true)}
+                onClick={() => {
+                  triggerHaptic('light');
+                  setShowNewTxModal(true);
+                }}
               >
                 <Plus size={16} />
                 Novo
@@ -1188,7 +1237,10 @@ export function App() {
                       key={opt.id}
                       type="button"
                       className={`chip-toggle ${themePref === opt.id ? 'active' : ''}`}
-                      onClick={() => setThemePref(opt.id)}
+                      onClick={() => {
+                        triggerHaptic('light');
+                        setThemePref(opt.id);
+                      }}
                     >
                       {opt.label}
                     </button>
@@ -1224,7 +1276,7 @@ export function App() {
                       <AnimatedCurrency cents={netWorthCents} mode="count" />
                     </div>
                     <div className="kpi-meta" style={{ marginTop: 4 }}>
-                      Saldo consolidado em {state.accounts.length} conta(s) menos faturas abertas
+                      {state.accounts.length} conta(s) • faturas descontadas
                     </div>
                   </div>
                   <div className="bento-hero-badge">
@@ -2210,7 +2262,7 @@ export function App() {
         <button
           type="button"
           className={`mobile-nav-btn ${activeTab === 'overview' ? 'active' : ''}`}
-          onClick={() => setActiveTab('overview')}
+          onClick={() => handleSelectTab('overview')}
         >
           <LayoutDashboard size={19} />
           <span>Resumo</span>
@@ -2218,7 +2270,7 @@ export function App() {
         <button
           type="button"
           className={`mobile-nav-btn ${activeTab === 'accounts' ? 'active' : ''}`}
-          onClick={() => setActiveTab('accounts')}
+          onClick={() => handleSelectTab('accounts')}
         >
           <Landmark size={19} />
           <span>Contas</span>
@@ -2226,7 +2278,7 @@ export function App() {
         <button
           type="button"
           className={`mobile-nav-btn ${activeTab === 'cards' ? 'active' : ''}`}
-          onClick={() => setActiveTab('cards')}
+          onClick={() => handleSelectTab('cards')}
         >
           <CreditCardIcon size={19} />
           <span>Cartões</span>
@@ -2234,7 +2286,7 @@ export function App() {
         <button
           type="button"
           className={`mobile-nav-btn ${activeTab === 'transactions' ? 'active' : ''}`}
-          onClick={() => setActiveTab('transactions')}
+          onClick={() => handleSelectTab('transactions')}
         >
           <ArrowUpRight size={19} />
           <span>Extrato</span>
@@ -2242,7 +2294,7 @@ export function App() {
         <button
           type="button"
           className={`mobile-nav-btn ${activeTab === 'recurrences' ? 'active' : ''}`}
-          onClick={() => setActiveTab('recurrences')}
+          onClick={() => handleSelectTab('recurrences')}
         >
           <Repeat size={19} />
           <span>Fixas</span>
@@ -2250,7 +2302,7 @@ export function App() {
         <button
           type="button"
           className={`mobile-nav-btn ${activeTab === 'calendar' ? 'active' : ''}`}
-          onClick={() => setActiveTab('calendar')}
+          onClick={() => handleSelectTab('calendar')}
         >
           <CalendarClock size={19} />
           <span>Agenda</span>
@@ -2284,6 +2336,7 @@ export function App() {
         </div>
       )}
     </div>
+    </PrivacyContext.Provider>
   );
 }
 export default App;

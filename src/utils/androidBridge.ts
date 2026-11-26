@@ -1,5 +1,6 @@
 import { App as CapApp } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
+import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { Network } from '@capacitor/network';
 import { StatusBar, Style } from '@capacitor/status-bar';
 
@@ -8,6 +9,17 @@ import { StatusBar, Style } from '@capacitor/status-bar';
  */
 
 export type ResolvedTheme = 'nordic-light' | 'obsidian-oled' | 'nordic-dark' | 'nordic-material';
+
+export function triggerHaptic(kind: 'light' | 'medium' | 'success' = 'light'): void {
+  if (!Capacitor.isNativePlatform()) return;
+  if (kind === 'success') {
+    void Haptics.notification({ type: NotificationType.Success }).catch(() => {});
+    return;
+  }
+  void Haptics.impact({
+    style: kind === 'medium' ? ImpactStyle.Medium : ImpactStyle.Light,
+  }).catch(() => {});
+}
 
 export function isNativeAndroid(): boolean {
   return Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';

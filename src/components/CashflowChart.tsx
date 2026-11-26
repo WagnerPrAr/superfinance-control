@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BarChart3, TrendingUp, X } from 'lucide-react';
+import { BarChart3, ChevronDown, ChevronUp, TrendingUp, X } from 'lucide-react';
 import { shiftYearMonth } from '../domain/ledger';
 import { formatCentsBRL, subtractCents, sumCents } from '../domain/money';
 import type { Transaction } from '../domain/types';
@@ -30,13 +30,16 @@ function buildSmoothCurvePath(points: readonly { x: number; y: number }[]): stri
 export function CashflowChart({ transactions, currentYearMonth }: CashflowChartProps) {
   const [mode, setMode] = usePersistedState<ChartMode>('superfinance_cashflow_mode_v1', 'bars');
   const [activeYm, setActiveYm] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   const months = [-4, -3, -2, -1, 0, 1].map((delta) => shiftYearMonth(currentYearMonth, delta));
 
   const series = months.map((ym) => {
     const monthTxs = transactions.filter((tx) => tx.competenceDate.startsWith(ym) && tx.type !== 'transfer');
-    const incomeCents = sumCents(monthTxs.filter((tx) => tx.type === 'income').map((tx) => tx.amountCents));
-    const expenseCents = sumCents(monthTxs.filter((tx) => tx.type === 'expense').map((tx) => tx.amountCents));
+    const incomeTxs = monthTxs.filter((tx) => tx.type === 'income');
+    const expenseTxs = monthTxs.filter((tx) => tx.type === 'expense');
+    const incomeCents = sumCents(incomeTxs.map((tx) => tx.amountCents));
+    const expenseCents = sumCents(expenseTxs.map((tx) => tx.amountCents));
     const netCents = subtractCents(incomeCents, expenseCents);
     const monthIdx = Number(ym.slice(5, 7)) - 1;
     return {
@@ -45,6 +48,8 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
       incomeCents,
       expenseCents,
       netCents,
+      txCount: monthTxs.length,
+      topExpenses: [...expenseTxs].sort((a, b) => b.amountCents - a.amountCents).slice(0, 3),
       isCurrent: ym === currentYearMonth,
     };
   });
@@ -69,6 +74,16 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
   const expenseArea = `${expensePath} L ${expensePoints[expensePoints.length - 1].x} 170 L ${expensePoints[0].x} 170 Z`;
 
   const selectedItem = series.find((s) => s.ym === activeYm) ?? null;
+
+  function selectMonth(ym: string, toggle = false) {
+    setActiveYm((prev) => {
+      if (toggle && prev === ym) {
+        setExpanded(false);
+        return null;
+      }
+      return ym;
+    });
+  }
 
   return (
     <div className="chart-shell">
@@ -113,30 +128,66 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
         </div>
       </div>
 
-      {/* Balão informativo interativo (Desktop hover/click e Android tap) */}
+      {/* Balão informativo expansível (hover ou toque) */}
       {selectedItem ? (
         <div className="chart-tooltip-balloon" role="status" aria-live="polite">
-          <div className="chart-tooltip-content">
-            <strong>{selectedItem.label}</strong>
-            <span className="mono text-emerald">+{formatCentsBRL(selectedItem.incomeCents)}</span>
-            <span className="mono text-terracotta">-{formatCentsBRL(selectedItem.expenseCents)}</span>
-            <span
-              className={`tag ${selectedItem.netCents >= 0 ? 'tag-emerald' : 'tag-terracotta'} mono`}
-            >
-              Saldo: {formatCentsBRL(selectedItem.netCents, { showSign: true })}
-            </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="chart-tooltip-content">
+              <strong>{selectedItem.label}</strong>
+              <span className="mono text-emerald">+{formatCentsBRL(selectedItem.incomeCents)}</span>
+              <span className="mono text-terracotta">-{formatCentsBRL(selectedItem.expenseCents)}</span>
+              <span
+                className={`tag ${selectedItem.netCents >= 0 ? 'tag-emerald' : 'tag-terracotta'} mono`}
+              >
+                Saldo: {formatCentsBRL(selectedItem.netCents, { showSign: true })}
+              </span>
+              <button
+                type="button"
+                className="balloon-inline-expand"
+                onClick={() => setExpanded((v) => !v)}
+              >
+                {expanded ? (
+                  <>
+                    Ocultar <ChevronUp size={13} />
+                  </>
+                ) : (
+                  <>
+                    Detalhes ({selectedItem.txCount}) <ChevronDown size={13} />
+                  </>
+                )}
+              </button>
+            </div>
+
+            {expanded && (
+              <div className="chart-tooltip-expanded">
+                {selectedItem.topExpenses.length === 0 ? (
+                  <span>Nenhuma saída lançada neste mês.</span>
+                ) : (
+                  selectedItem.topExpenses.map((tx) => (
+                    <div key={tx.id} className="chart-tooltip-expanded-row">
+                      <span>{tx.description}</span>
+                      <span className="mono text-terracotta">-{formatCentsBRL(tx.amountCents)}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
+
           <button
             type="button"
             className="info-balloon-close"
             aria-label="Fechar balão do gráfico"
-            onClick={() => setActiveYm(null)}
+            onClick={() => {
+              setActiveYm(null);
+              setExpanded(false);
+            }}
           >
             <X size={13} />
           </button>
         </div>
       ) : (
-        <p className="chart-hint">Toque ou passe o mouse sobre um mês para ver o balão detalhado.</p>
+        <p className="chart-hint">Passe o mouse ou toque em um mês para abrir e expandir o balão de detalhes.</p>
       )}
 
       <svg
@@ -155,7 +206,7 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
               x2={590}
               y1={y}
               y2={y}
-              stroke="rgba(20, 22, 25, 0.08)"
+              stroke="var(--border-hairline)"
               strokeDasharray={ratio === 0 ? undefined : '3 4'}
             />
           );
@@ -171,8 +222,8 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
               <g
                 key={item.ym}
                 style={{ cursor: 'pointer' }}
-                onMouseEnter={() => setActiveYm(item.ym)}
-                onClick={() => setActiveYm((prev) => (prev === item.ym ? null : item.ym))}
+                onMouseEnter={() => selectMonth(item.ym, false)}
+                onClick={() => selectMonth(item.ym, true)}
               >
                 {(item.isCurrent || isSelected) && (
                   <rect
@@ -181,7 +232,7 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
                     width={68}
                     height={162}
                     rx={8}
-                    fill={isSelected ? 'rgba(36, 86, 122, 0.09)' : 'rgba(20, 22, 25, 0.035)'}
+                    fill={isSelected ? 'var(--accent-navy-soft)' : 'var(--bg-subtle)'}
                   />
                 )}
                 <rect
@@ -192,7 +243,7 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
                   width={22}
                   height={incH}
                   rx={4}
-                  fill="#0F6E56"
+                  fill="var(--accent-emerald)"
                 />
                 <rect
                   className="chart-bar-anim"
@@ -202,7 +253,7 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
                   width={22}
                   height={expH}
                   rx={4}
-                  fill="#C84B31"
+                  fill="var(--accent-terracotta)"
                 />
                 <text
                   x={groupX + 25}
@@ -210,7 +261,7 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
                   textAnchor="middle"
                   fontSize="11.5"
                   fontWeight={item.isCurrent || isSelected ? '700' : '500'}
-                  fill={isSelected ? '#24567A' : item.isCurrent ? '#141619' : '#5e6673'}
+                  fill={isSelected ? 'var(--accent-navy)' : item.isCurrent ? 'var(--ink-primary)' : 'var(--ink-muted)'}
                 >
                   {item.label}
                 </text>
@@ -229,18 +280,18 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
                   width={66}
                   height={162}
                   rx={8}
-                  fill={isSelected ? 'rgba(36, 86, 122, 0.09)' : 'rgba(20, 22, 25, 0.035)'}
+                  fill={isSelected ? 'var(--accent-navy-soft)' : 'var(--bg-subtle)'}
                 />
               ) : null;
             })}
-            <path d={incomeArea} className="chart-area-fade" fill="rgba(15, 110, 86, 0.1)" />
-            <path d={expenseArea} className="chart-area-fade" fill="rgba(200, 75, 49, 0.09)" />
+            <path d={incomeArea} className="chart-area-fade" fill="var(--accent-emerald-soft)" />
+            <path d={expenseArea} className="chart-area-fade" fill="var(--accent-terracotta-soft)" />
             <path
               d={incomePath}
               className="chart-curve-draw"
               pathLength={100}
               fill="none"
-              stroke="#0F6E56"
+              stroke="var(--accent-emerald)"
               strokeWidth="2.75"
               strokeLinecap="round"
             />
@@ -249,7 +300,7 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
               className="chart-curve-draw"
               pathLength={100}
               fill="none"
-              stroke="#C84B31"
+              stroke="var(--accent-terracotta)"
               strokeWidth="2.75"
               strokeLinecap="round"
             />
@@ -261,11 +312,9 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
                 cx={pt.x}
                 cy={pt.y}
                 r={activeYm === pt.item.ym || pt.item.isCurrent ? 5.5 : 4}
-                fill="#FFFFFF"
-                stroke="#0F6E56"
+                fill="var(--bg-surface)"
+                stroke="var(--accent-emerald)"
                 strokeWidth="2.5"
-                onMouseEnter={() => setActiveYm(pt.item.ym)}
-                onClick={() => setActiveYm((prev) => (prev === pt.item.ym ? null : pt.item.ym))}
               />
             ))}
             {expensePoints.map((pt, i) => (
@@ -276,14 +325,11 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
                 cx={pt.x}
                 cy={pt.y}
                 r={activeYm === pt.item.ym || pt.item.isCurrent ? 5.5 : 4}
-                fill="#FFFFFF"
-                stroke="#C84B31"
+                fill="var(--bg-surface)"
+                stroke="var(--accent-terracotta)"
                 strokeWidth="2.5"
-                onMouseEnter={() => setActiveYm(pt.item.ym)}
-                onClick={() => setActiveYm((prev) => (prev === pt.item.ym ? null : pt.item.ym))}
               />
             ))}
-            {/* Alvo amplo invisível por mês para toque confortável no Android */}
             {series.map((item, idx) => (
               <rect
                 key={`hit-${item.ym}`}
@@ -293,8 +339,8 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
                 height={186}
                 fill="transparent"
                 style={{ cursor: 'pointer' }}
-                onMouseEnter={() => setActiveYm(item.ym)}
-                onClick={() => setActiveYm((prev) => (prev === item.ym ? null : item.ym))}
+                onMouseEnter={() => selectMonth(item.ym, false)}
+                onClick={() => selectMonth(item.ym, true)}
               />
             ))}
             {series.map((item, idx) => (
@@ -305,7 +351,7 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
                 textAnchor="middle"
                 fontSize="11.5"
                 fontWeight={item.isCurrent || activeYm === item.ym ? '700' : '500'}
-                fill={activeYm === item.ym ? '#24567A' : item.isCurrent ? '#141619' : '#5e6673'}
+                fill={activeYm === item.ym ? 'var(--accent-navy)' : item.isCurrent ? 'var(--ink-primary)' : 'var(--ink-muted)'}
               >
                 {item.label}
               </text>

@@ -12,8 +12,11 @@ import {
   Pencil,
   Plus,
   Repeat,
+  Moon,
+  Palette,
   RotateCcw,
   SlidersHorizontal,
+  Sun,
   Trash2,
 } from 'lucide-react';
 import { buildInitialSeedState } from './data/seedData';
@@ -53,10 +56,20 @@ import { CollapsiblePanel } from './components/CollapsiblePanel';
 import { AnimatedCurrency } from './components/AnimatedCurrency';
 import { SwipeableTransactionRow } from './components/SwipeableTransactionRow';
 import { InfoBalloon } from './components/InfoBalloon';
+import { NetWorthSparkline } from './components/NetWorthSparkline';
 import { usePersistedState } from './hooks/usePersistedState';
-import { registerAndroidBackHandler, syncAndroidThemeColor } from './utils/androidBridge';
+import { registerAndroidBackHandler, syncAndroidThemeColor, type ResolvedTheme } from './utils/androidBridge';
 
 type NavTab = 'overview' | 'accounts' | 'cards' | 'transactions' | 'recurrences' | 'calendar';
+type ThemePref = 'auto' | ResolvedTheme;
+
+const THEME_OPTIONS: readonly { id: ThemePref; label: string; shortLabel: string }[] = [
+  { id: 'auto', label: 'Híbrido Auto (Dia/Noite)', shortLabel: 'Auto' },
+  { id: 'nordic-light', label: 'Nordic Claro', shortLabel: 'Claro' },
+  { id: 'obsidian-oled', label: 'Obsidian OLED', shortLabel: 'OLED' },
+  { id: 'nordic-dark', label: 'Nordic Dark Bento', shortLabel: 'Nordic Dark' },
+  { id: 'nordic-material', label: 'Nordic Material', shortLabel: 'Material' },
+];
 
 const TAB_ORDER: readonly NavTab[] = [
   'overview',
@@ -134,8 +147,23 @@ export function App() {
 
   // Preferências de exibição escolhidas pelo usuário (persistidas entre telas e reloads)
   const [overviewPrefs, setOverviewPrefs] = useState<OverviewPrefs>(loadOverviewPrefs);
+  const [themePref, setThemePref] = usePersistedState<ThemePref>('sf_theme_pref_v1', 'auto');
+  const [systemDark, setSystemDark] = useState<boolean>(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-color-scheme: dark)').matches
+      : false,
+  );
   const [showCustomizer, setShowCustomizer] = usePersistedState<boolean>('sf_show_customizer_v1', false);
   const [showTxFilters, setShowTxFilters] = usePersistedState<boolean>('sf_show_tx_filters_v1', false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (ev: MediaQueryListEvent) => setSystemDark(ev.matches);
+    setSystemDark(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
   // Filtros de Lançamentos persistidos
   const [txFilterType, setTxFilterType] = usePersistedState<'all' | 'income' | 'expense' | 'transfer'>(
@@ -814,13 +842,23 @@ export function App() {
   const monthMood: 'good' | 'bad' | 'neutral' =
     monthResultCents > 0 ? 'good' : monthResultCents < 0 ? 'bad' : 'neutral';
   const activeTabIdx = Math.max(0, TAB_ORDER.indexOf(activeTab));
+  const resolvedTheme: ResolvedTheme =
+    themePref === 'auto' ? (systemDark ? 'obsidian-oled' : 'nordic-light') : themePref;
+  const isDarkTheme = resolvedTheme !== 'nordic-light';
+
+  const handleToggleDayNight = () => {
+    setThemePref(isDarkTheme ? 'nordic-light' : 'obsidian-oled');
+  };
 
   useEffect(() => {
-    syncAndroidThemeColor(monthMood);
-  }, [monthMood]);
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-theme', resolvedTheme);
+    }
+    syncAndroidThemeColor(monthMood, resolvedTheme);
+  }, [monthMood, resolvedTheme]);
 
   return (
-    <div className="app-shell" data-month-mood={monthMood}>
+    <div className="app-shell" data-month-mood={monthMood} data-theme={resolvedTheme}>
       <aside className="sidebar" aria-label="Navegação principal">
         <div className="brand">
           <div className="brand-mark">SF</div>
@@ -885,6 +923,26 @@ export function App() {
         </nav>
 
         <div className="sidebar-footer">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 6 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 700, color: 'var(--ink-secondary)' }}>
+              <Palette size={13} />
+              Tema Visual
+            </span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {THEME_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className={`chip-toggle ${themePref === opt.id ? 'active' : ''}`}
+                  style={{ minHeight: 28, padding: '3px 9px', fontSize: 11 }}
+                  onClick={() => setThemePref(opt.id)}
+                  title={opt.label}
+                >
+                  {opt.shortLabel}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="status-row">
             <span className={`status-dot ${calStatus?.connected ? 'online' : ''}`} />
             {calStatus?.connected ? 'Calendar Conectado' : 'Calendar Offline'}
@@ -945,6 +1003,16 @@ export function App() {
             </div>
 
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <button
+                type="button"
+                className="btn"
+                style={{ minWidth: 44, minHeight: 44, padding: '0 11px' }}
+                onClick={handleToggleDayNight}
+                aria-label={isDarkTheme ? 'Mudar para tema claro' : 'Mudar para tema escuro'}
+                title={isDarkTheme ? 'Modo Claro (Nordic Claro)' : 'Modo Escuro (Obsidian OLED)'}
+              >
+                {isDarkTheme ? <Sun size={16} /> : <Moon size={16} />}
+              </button>
               {activeTab === 'overview' && (
                 <button
                   type="button"
@@ -974,45 +1042,78 @@ export function App() {
         {activeTab === 'overview' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {showCustomizer && (
-              <div className="customizer-bar" role="region" aria-label="Personalizar painéis da visão geral">
-                <button
-                  type="button"
-                  className={`chip-toggle ${overviewPrefs.showSecondaryKpis ? 'active' : ''}`}
-                  onClick={() => toggleOverviewPref('showSecondaryKpis')}
-                >
-                  Indicadores do Mês
-                </button>
-                <button
-                  type="button"
-                  className={`chip-toggle ${overviewPrefs.showCashflow ? 'active' : ''}`}
-                  onClick={() => toggleOverviewPref('showCashflow')}
-                >
-                  Fluxo de Caixa
-                </button>
-                <button
-                  type="button"
-                  className={`chip-toggle ${overviewPrefs.showUpcoming ? 'active' : ''}`}
-                  onClick={() => toggleOverviewPref('showUpcoming')}
-                >
-                  Próximos Vencimentos
-                </button>
-                <button
-                  type="button"
-                  className={`chip-toggle ${overviewPrefs.showCategories ? 'active' : ''}`}
-                  onClick={() => toggleOverviewPref('showCategories')}
-                >
-                  Gastos por Categoria
-                </button>
+              <div
+                className="customizer-bar"
+                role="region"
+                aria-label="Personalizar painéis e tema da visão geral"
+                style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}
+              >
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-secondary)', marginRight: 4 }}>
+                    Painéis:
+                  </span>
+                  <button
+                    type="button"
+                    className={`chip-toggle ${overviewPrefs.showSecondaryKpis ? 'active' : ''}`}
+                    onClick={() => toggleOverviewPref('showSecondaryKpis')}
+                  >
+                    Indicadores do Mês
+                  </button>
+                  <button
+                    type="button"
+                    className={`chip-toggle ${overviewPrefs.showCashflow ? 'active' : ''}`}
+                    onClick={() => toggleOverviewPref('showCashflow')}
+                  >
+                    Fluxo de Caixa
+                  </button>
+                  <button
+                    type="button"
+                    className={`chip-toggle ${overviewPrefs.showUpcoming ? 'active' : ''}`}
+                    onClick={() => toggleOverviewPref('showUpcoming')}
+                  >
+                    Próximos Vencimentos
+                  </button>
+                  <button
+                    type="button"
+                    className={`chip-toggle ${overviewPrefs.showCategories ? 'active' : ''}`}
+                    onClick={() => toggleOverviewPref('showCategories')}
+                  >
+                    Gastos por Categoria
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: 'var(--ink-secondary)',
+                      marginRight: 4,
+                    }}
+                  >
+                    <Palette size={14} />
+                    Tema:
+                  </span>
+                  {THEME_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      className={`chip-toggle ${themePref === opt.id ? 'active' : ''}`}
+                      onClick={() => setThemePref(opt.id)}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
-            <section
-              className="kpi-grid"
-              aria-label="Indicadores financeiros"
-              style={overviewPrefs.showSecondaryKpis ? { marginBottom: 4 } : { gridTemplateColumns: '1fr', marginBottom: 4 }}
-            >
+            <section className="bento-top-stack" aria-label="Indicadores financeiros Bento Híbrido">
               <div
-                className={`surface ${
+                className={`surface bento-hero-card ${
                   monthMood === 'good'
                     ? 'surface-mood-good'
                     : monthMood === 'bad'
@@ -1020,61 +1121,111 @@ export function App() {
                       : ''
                 }`}
               >
-                <div className="kpi-label">
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    Patrimônio Líquido
-                    <InfoBalloon
-                      title="Patrimônio Líquido"
-                      text="Soma o saldo atual de todas as suas contas e subtrai o valor total das faturas de cartão que ainda estão em aberto."
-                      align="left"
-                    />
-                  </span>
-                  <Landmark size={16} />
+                <div className="bento-hero-top">
+                  <div>
+                    <div className="kpi-label" style={{ marginBottom: 6 }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        Patrimônio Líquido
+                        <InfoBalloon
+                          title="Patrimônio Líquido"
+                          text="Soma o saldo atual de todas as suas contas e subtrai o valor total das faturas de cartão que ainda estão em aberto."
+                          extraDetails={`Contas (${state.accounts.length}): ${((netWorthCents + totalOpenCardsCents) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} • Faturas em aberto: -${(totalOpenCardsCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}
+                          align="left"
+                        />
+                      </span>
+                    </div>
+                    <div className={`bento-hero-value mono ${netWorthCents < 0 ? 'text-terracotta' : ''}`}>
+                      <AnimatedCurrency cents={netWorthCents} mode="count" />
+                    </div>
+                    <div className="kpi-meta" style={{ marginTop: 4 }}>
+                      Saldo consolidado em {state.accounts.length} conta(s) menos faturas abertas
+                    </div>
+                  </div>
+                  <div className="bento-hero-badge">
+                    <Landmark size={18} />
+                  </div>
                 </div>
-                <div className={`kpi-value mono ${netWorthCents < 0 ? 'text-terracotta' : ''}`}>
-                  <AnimatedCurrency cents={netWorthCents} mode="count" />
-                </div>
-                <div className="kpi-meta">Saldo total menos faturas abertas</div>
+
+                <NetWorthSparkline
+                  transactions={state.transactions}
+                  currentYearMonth={currentYm}
+                  baseNetWorthCents={netWorthCents}
+                />
               </div>
 
               {overviewPrefs.showSecondaryKpis && (
                 <>
-                  <div className="surface">
-                    <div className="kpi-label">
-                      <span>Entradas ({currentYm})</span>
-                      <ArrowDownLeft size={16} className="text-emerald" />
+                  <div className="bento-pair">
+                    <div className="surface">
+                      <div className="kpi-label">
+                        <span>Entradas ({currentYm})</span>
+                        <ArrowDownLeft size={16} className="text-emerald" />
+                      </div>
+                      <div className="kpi-value mono text-emerald">
+                        <AnimatedCurrency cents={monthIncomeCents} mode="count" />
+                      </div>
+                      <div className="kpi-meta">Receitas do mês</div>
                     </div>
-                    <div className="kpi-value mono text-emerald">
-                      <AnimatedCurrency cents={monthIncomeCents} mode="count" />
+
+                    <div className="surface">
+                      <div className="kpi-label">
+                        <span>Saídas ({currentYm})</span>
+                        <ArrowUpRight size={16} className="text-terracotta" />
+                      </div>
+                      <div className="kpi-value mono text-terracotta">
+                        <AnimatedCurrency cents={monthExpenseCents} mode="count" />
+                      </div>
+                      <div className="kpi-meta">Despesas do mês</div>
                     </div>
-                    <div className="kpi-meta">Receitas do mês</div>
                   </div>
 
-                  <div className="surface">
-                    <div className="kpi-label">
-                      <span>Saídas ({currentYm})</span>
-                      <ArrowUpRight size={16} className="text-terracotta" />
-                    </div>
-                    <div className="kpi-value mono text-terracotta">
-                      <AnimatedCurrency cents={monthExpenseCents} mode="count" />
-                    </div>
-                    <div className="kpi-meta">
-                      Saldo do mês:{' '}
-                      <strong className={`mono ${monthResultCents >= 0 ? 'text-emerald' : 'text-terracotta'}`}>
+                  <div className="bento-secondary-row">
+                    <div
+                      className={`surface ${
+                        monthMood === 'good'
+                          ? 'surface-mood-good'
+                          : monthMood === 'bad'
+                            ? 'surface-mood-bad'
+                            : ''
+                      }`}
+                    >
+                      <div className="kpi-label">
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          Saldo do Mês
+                          <InfoBalloon
+                            title="Saldo do Mês"
+                            text="Resultado líquido entre entradas e saídas lançadas no mês selecionado."
+                            extraDetails={`Entradas: ${(monthIncomeCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} • Saídas: ${(monthExpenseCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}
+                            align="left"
+                          />
+                        </span>
+                      </div>
+                      <div
+                        className={`kpi-value mono ${
+                          monthResultCents >= 0 ? 'text-emerald' : 'text-terracotta'
+                        }`}
+                      >
                         <AnimatedCurrency cents={monthResultCents} mode="slide" showSign />
-                      </strong>
+                      </div>
+                      <div className="kpi-meta">
+                        {monthResultCents > 0
+                          ? 'Mês positivo — sobra no orçamento'
+                          : monthResultCents < 0
+                            ? 'Atenção — gastos acima das receitas'
+                            : 'Equilíbrio no mês atual'}
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="surface">
-                    <div className="kpi-label">
-                      <span>Faturas em Aberto</span>
-                      <CreditCardIcon size={16} className="text-navy" />
+                    <div className="surface">
+                      <div className="kpi-label">
+                        <span>Faturas em Aberto</span>
+                        <CreditCardIcon size={16} className="text-navy" />
+                      </div>
+                      <div className="kpi-value mono text-navy">
+                        <AnimatedCurrency cents={totalOpenCardsCents} mode="slide" />
+                      </div>
+                      <div className="kpi-meta">Em {state.cards.length} cartão(ões)</div>
                     </div>
-                    <div className="kpi-value mono text-navy">
-                      <AnimatedCurrency cents={totalOpenCardsCents} mode="slide" />
-                    </div>
-                    <div className="kpi-meta">Em {state.cards.length} cartão(ões)</div>
                   </div>
                 </>
               )}
@@ -1188,7 +1339,12 @@ export function App() {
                   </span>
                 }
               >
-                <CategoryChart items={categoryBreakdown} totalExpenseCents={monthExpenseCents} />
+                <CategoryChart
+                  items={categoryBreakdown}
+                  totalExpenseCents={monthExpenseCents}
+                  transactions={state.transactions}
+                  currentYearMonth={currentYm}
+                />
               </CollapsiblePanel>
             )}
           </div>
@@ -1375,6 +1531,7 @@ export function App() {
                             <InfoBalloon
                               title="Fechamento vs. Vencimento"
                               text={`Compras feitas antes do dia ${card.closingDay} entram na fatura atual; a partir do dia ${card.closingDay} vão para a próxima fatura, que vence todo dia ${card.dueDay}.`}
+                              extraDetails={`Limite total: ${(card.limitCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} • Disponível agora: ${(availCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}
                               align="left"
                             />
                           </span>
@@ -1715,6 +1872,7 @@ export function App() {
                     <InfoBalloon
                       title="Lançamento sem duplicidade"
                       text="Você pode clicar em 'Lançar' quantas vezes quiser: o sistema verifica quais contas já foram geradas no mês e cria apenas as que faltam."
+                      extraDetails={`Contas fixas ativas cadastradas: ${state.recurrences.filter((r) => r.active).length} de ${state.recurrences.length}. Cada item gerado recebe a tag da recorrência no mês ${currentYm}.`}
                       align="left"
                     />
                   </h2>

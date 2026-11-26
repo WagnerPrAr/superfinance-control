@@ -1,14 +1,22 @@
 /**
  * Utilitários leves para portabilidade Android (Capacitor WebView / PWA).
- * Mantém 100% de compatibilidade com web padrão (GitHub Pages) sem exigir pacotes nativos em tempo de build web.
  */
 
-export function syncAndroidThemeColor(mood: 'good' | 'bad' | 'neutral'): void {
+export type ResolvedTheme = 'nordic-light' | 'obsidian-oled' | 'nordic-dark' | 'nordic-material';
+
+export function syncAndroidThemeColor(mood: 'good' | 'bad' | 'neutral', theme: ResolvedTheme): void {
   if (typeof document === 'undefined') return;
   const meta = document.querySelector('meta[name="theme-color"]');
   if (!meta) return;
-  const color = mood === 'good' ? '#eff8f4' : mood === 'bad' ? '#fcf2ef' : '#f7f6f2';
-  meta.setAttribute('content', color);
+
+  const map: Record<ResolvedTheme, Record<'good' | 'bad' | 'neutral', string>> = {
+    'nordic-light': { good: '#eef7f3', bad: '#fbf0ed', neutral: '#f2f4f7' },
+    'nordic-material': { good: '#ebf5f0', bad: '#faeeeb', neutral: '#eef2f6' },
+    'obsidian-oled': { good: '#071410', bad: '#170a09', neutral: '#07090c' },
+    'nordic-dark': { good: '#0d1c1b', bad: '#1e1316', neutral: '#10151c' },
+  };
+
+  meta.setAttribute('content', map[theme][mood]);
 }
 
 export function isAndroidRuntime(): boolean {
@@ -18,7 +26,6 @@ export function isAndroidRuntime(): boolean {
 
 /**
  * Registra interceptação segura do botão Voltar do Android (Capacitor / Cordova / WebView)
- * para fechar modais abertos antes de voltar de aba ou sair do app.
  */
 export function registerAndroidBackHandler(onBack: () => boolean): () => void {
   if (typeof document === 'undefined') return () => {};

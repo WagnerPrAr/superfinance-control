@@ -1,0 +1,12 @@
+{
+  "name": "SuperFinance — Controle Financeiro",
+  "short_name": "SuperFinance",
+  "description": "Controle financeiro pessoal para Android com contas, cartões, contas fixas e alertas no Google Calendar.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f7f6f2",
+  "theme_color": "#f7f6f2",
+  "lang": "pt-BR"
+}

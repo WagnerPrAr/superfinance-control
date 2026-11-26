@@ -22,6 +22,7 @@ import {
 import { CollapsiblePanel } from './CollapsiblePanel';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { AnimatedCurrency } from './AnimatedCurrency';
+import { InfoBalloon } from './InfoBalloon';
 
 export interface SelectedAlertRequest {
   tx: Transaction;
@@ -245,7 +246,14 @@ export function CalendarAlertsPanel({
       <div className="surface">
         <div className="section-header" style={{ alignItems: 'flex-start' }}>
           <div>
-            <h3 className="section-title">Últimos Lançamentos fora do Calendário</h3>
+            <h3 className="section-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              Últimos Lançamentos fora do Calendário
+              <InfoBalloon
+                title="Como funciona a antecedência?"
+                text="O alerta é agendado no calendário financeiro separado exatamente N dias antes da data marcada no lançamento, evitando notificações tardias."
+                align="left"
+              />
+            </h3>
             <p className="section-desc">
               Marque os lançamentos desejados, defina a antecedência de cada alerta e clique em sincronizar.
             </p>

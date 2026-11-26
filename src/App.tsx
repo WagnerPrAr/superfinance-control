@@ -52,7 +52,9 @@ import { CalendarAlertsPanel, type SelectedAlertRequest } from './components/Cal
 import { CollapsiblePanel } from './components/CollapsiblePanel';
 import { AnimatedCurrency } from './components/AnimatedCurrency';
 import { SwipeableTransactionRow } from './components/SwipeableTransactionRow';
+import { InfoBalloon } from './components/InfoBalloon';
 import { usePersistedState } from './hooks/usePersistedState';
+import { registerAndroidBackHandler, syncAndroidThemeColor } from './utils/androidBridge';
 
 type NavTab = 'overview' | 'accounts' | 'cards' | 'transactions' | 'recurrences' | 'calendar';
 
@@ -209,6 +211,21 @@ export function App() {
       // Ignora quota errors
     }
   }, [overviewPrefs]);
+
+  useEffect(() => {
+    return registerAndroidBackHandler(() => {
+      if (showNewTxModal) {
+        setShowNewTxModal(false);
+        setEditingTx(null);
+        return true;
+      }
+      if (activeTab !== 'overview') {
+        setActiveTab('overview');
+        return true;
+      }
+      return false;
+    });
+  }, [showNewTxModal, activeTab, setActiveTab]);
 
   function toggleOverviewPref(key: keyof OverviewPrefs) {
     setOverviewPrefs((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -798,6 +815,10 @@ export function App() {
     monthResultCents > 0 ? 'good' : monthResultCents < 0 ? 'bad' : 'neutral';
   const activeTabIdx = Math.max(0, TAB_ORDER.indexOf(activeTab));
 
+  useEffect(() => {
+    syncAndroidThemeColor(monthMood);
+  }, [monthMood]);
+
   return (
     <div className="app-shell" data-month-mood={monthMood}>
       <aside className="sidebar" aria-label="Navegação principal">
@@ -1000,7 +1021,14 @@ export function App() {
                 }`}
               >
                 <div className="kpi-label">
-                  <span>Patrimônio Líquido</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    Patrimônio Líquido
+                    <InfoBalloon
+                      title="Patrimônio Líquido"
+                      text="Soma o saldo atual de todas as suas contas e subtrai o valor total das faturas de cartão que ainda estão em aberto."
+                      align="left"
+                    />
+                  </span>
                   <Landmark size={16} />
                 </div>
                 <div className={`kpi-value mono ${netWorthCents < 0 ? 'text-terracotta' : ''}`}>
@@ -1342,7 +1370,14 @@ export function App() {
 
                       <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 6 }}>
-                          <span>Limite usado ({usagePct}%)</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            Limite usado ({usagePct}%)
+                            <InfoBalloon
+                              title="Fechamento vs. Vencimento"
+                              text={`Compras feitas antes do dia ${card.closingDay} entram na fatura atual; a partir do dia ${card.closingDay} vão para a próxima fatura, que vence todo dia ${card.dueDay}.`}
+                              align="left"
+                            />
+                          </span>
                           <span className="mono">
                             Disponível: <AnimatedCurrency cents={availCents} mode="count" durationMs={850} />
                           </span>
@@ -1675,7 +1710,14 @@ export function App() {
             <div className="surface">
               <div className="section-header">
                 <div>
-                  <h2 className="section-title">Contas Fixas & Recorrentes</h2>
+                  <h2 className="section-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    Contas Fixas & Recorrentes
+                    <InfoBalloon
+                      title="Lançamento sem duplicidade"
+                      text="Você pode clicar em 'Lançar' quantas vezes quiser: o sistema verifica quais contas já foram geradas no mês e cria apenas as que faltam."
+                      align="left"
+                    />
+                  </h2>
                   <p className="section-desc">
                     Lance automaticamente suas contas fixas no mês sem risco de duplicar
                   </p>

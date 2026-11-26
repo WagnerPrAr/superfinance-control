@@ -8,7 +8,7 @@
 
   --ink-primary: #141619;
   --ink-secondary: #525964;
-  --ink-muted: #7b8390;
+  --ink-muted: #5e6673;
 
   --accent-emerald: #0f6e56;
   --accent-emerald-soft: rgba(15, 110, 86, 0.1);
@@ -34,6 +34,7 @@
 *::before,
 *::after {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html,
@@ -46,6 +47,20 @@ body {
   font-size: 15px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: contain;
+  touch-action: manipulation;
+}
+
+button,
+a,
+[role='button'] {
+  touch-action: manipulation;
+  user-select: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-navy);
+  outline-offset: 2px;
 }
 
 button,
@@ -867,51 +882,54 @@ textarea {
     gap: 8px;
   }
 
-  /* Alvos de toque confortáveis (Apple HIG 44px / Material 3 48px) e espaçamento >= 8px */
+  /* Alvos de toque confortáveis padrão Android Material Design 3 (48px) e espaçamento >= 8px */
   .btn {
-    min-height: 44px;
+    min-height: 48px;
     padding: 10px 14px;
     font-size: 14px;
   }
 
   .btn-sm {
-    min-height: 44px;
+    min-height: 46px;
     padding: 8px 12px;
     font-size: 13px;
   }
 
   .btn-icon-only {
-    min-width: 44px;
-    min-height: 44px;
+    min-width: 48px;
+    min-height: 48px;
     padding: 0;
   }
 
   .chip-toggle {
-    min-height: 44px;
+    min-height: 46px;
     padding: 8px 14px;
   }
 
-  /* Evita auto-zoom no iOS Safari (>= 16px em inputs/selects) */
   .input,
   .select {
-    min-height: 46px;
+    min-height: 48px;
     font-size: 16px;
     padding: 10px 12px;
   }
 
   .checkbox-row {
-    min-height: 44px;
+    min-height: 48px;
     gap: 10px;
   }
 
   .checkbox-row input[type='checkbox'] {
-    width: 20px;
-    height: 20px;
+    width: 22px;
+    height: 22px;
     flex-shrink: 0;
   }
 
   .surface {
     padding: 16px;
+  }
+
+  .collapsible-header-row {
+    flex-wrap: wrap;
   }
 
   .collapsible-trigger {
@@ -925,12 +943,13 @@ textarea {
 
   .kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
+    gap: 10px;
     margin-bottom: 16px;
   }
 
   .kpi-value {
-    font-size: 19px;
+    font-size: clamp(16px, 4.3vw, 20px);
+    word-break: keep-all;
   }
 
   .kpi-meta {
@@ -962,7 +981,7 @@ textarea {
     gap: 12px;
   }
 
-  /* Modal estilo bottom-sheet confortável no mobile */
+  /* Modal estilo bottom-sheet confortável no Android */
   .modal-backdrop {
     align-items: flex-end;
     padding: 0;
@@ -975,7 +994,7 @@ textarea {
   }
 
   .segmented button {
-    min-height: 44px;
+    min-height: 46px;
   }
 
   .toast {
@@ -999,6 +1018,155 @@ textarea {
     align-items: stretch;
     gap: 16px;
   }
+}
+
+/* Balões Informativos (Tooltips interativos para Desktop & Android) */
+.info-balloon-anchor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+
+.info-balloon-trigger {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--ink-secondary);
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.info-balloon-trigger:hover,
+.info-balloon-trigger.active {
+  background: var(--accent-navy);
+  border-color: var(--accent-navy);
+  color: #ffffff;
+}
+
+.info-balloon-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  width: min(280px, 78vw);
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--ink-primary);
+  color: #ffffff;
+  box-shadow: var(--shadow-modal);
+  z-index: 150;
+  font-size: 12.5px;
+  line-height: 1.45;
+  text-align: left;
+  animation: toastBounceIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.info-balloon-center {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.info-balloon-left {
+  left: 0;
+}
+
+.info-balloon-right {
+  right: 0;
+}
+
+.info-balloon-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+  font-size: 12.5px;
+}
+
+.info-balloon-body {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.88);
+  font-weight: 400;
+}
+
+.info-balloon-close {
+  border: none;
+  background: rgba(255, 255, 255, 0.14);
+  color: inherit;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.chart-tooltip-balloon {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-sm);
+  animation: fadeSlideUp 0.24s cubic-bezier(0.34, 1.45, 0.64, 1) both;
+}
+
+.chart-tooltip-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.chart-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.category-legend-btn {
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 10px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s ease;
+}
+
+.category-legend-btn:hover,
+.category-legend-btn.active {
+  background: var(--bg-hover);
+}
+
+.category-bar-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.category-bar-card:hover,
+.category-bar-card.active {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
 }
 
 /* Micro-animações suaves, feedback gradual de cor do mês e estética Craft (Web & Mobile) */

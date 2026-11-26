@@ -1,6 +1,7 @@
-import { BarChart3, TrendingUp } from 'lucide-react';
+import { useState } from 'react';
+import { BarChart3, TrendingUp, X } from 'lucide-react';
 import { shiftYearMonth } from '../domain/ledger';
-import { formatCentsBRL, sumCents } from '../domain/money';
+import { formatCentsBRL, subtractCents, sumCents } from '../domain/money';
 import type { Transaction } from '../domain/types';
 import { usePersistedState } from '../hooks/usePersistedState';
 
@@ -28,18 +29,22 @@ function buildSmoothCurvePath(points: readonly { x: number; y: number }[]): stri
 
 export function CashflowChart({ transactions, currentYearMonth }: CashflowChartProps) {
   const [mode, setMode] = usePersistedState<ChartMode>('superfinance_cashflow_mode_v1', 'bars');
+  const [activeYm, setActiveYm] = useState<string | null>(null);
+
   const months = [-4, -3, -2, -1, 0, 1].map((delta) => shiftYearMonth(currentYearMonth, delta));
 
   const series = months.map((ym) => {
     const monthTxs = transactions.filter((tx) => tx.competenceDate.startsWith(ym) && tx.type !== 'transfer');
     const incomeCents = sumCents(monthTxs.filter((tx) => tx.type === 'income').map((tx) => tx.amountCents));
     const expenseCents = sumCents(monthTxs.filter((tx) => tx.type === 'expense').map((tx) => tx.amountCents));
+    const netCents = subtractCents(incomeCents, expenseCents);
     const monthIdx = Number(ym.slice(5, 7)) - 1;
     return {
       ym,
       label: `${MONTH_LABELS[monthIdx]}/${ym.slice(2, 4)}`,
       incomeCents,
       expenseCents,
+      netCents,
       isCurrent: ym === currentYearMonth,
     };
   });
@@ -63,8 +68,10 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
   const incomeArea = `${incomePath} L ${incomePoints[incomePoints.length - 1].x} 170 L ${incomePoints[0].x} 170 Z`;
   const expenseArea = `${expensePath} L ${expensePoints[expensePoints.length - 1].x} 170 L ${expensePoints[0].x} 170 Z`;
 
+  const selectedItem = series.find((s) => s.ym === activeYm) ?? null;
+
   return (
-    <div>
+    <div className="chart-shell">
       <div
         style={{
           display: 'flex',
@@ -106,6 +113,32 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
         </div>
       </div>
 
+      {/* Balão informativo interativo (Desktop hover/click e Android tap) */}
+      {selectedItem ? (
+        <div className="chart-tooltip-balloon" role="status" aria-live="polite">
+          <div className="chart-tooltip-content">
+            <strong>{selectedItem.label}</strong>
+            <span className="mono text-emerald">+{formatCentsBRL(selectedItem.incomeCents)}</span>
+            <span className="mono text-terracotta">-{formatCentsBRL(selectedItem.expenseCents)}</span>
+            <span
+              className={`tag ${selectedItem.netCents >= 0 ? 'tag-emerald' : 'tag-terracotta'} mono`}
+            >
+              Saldo: {formatCentsBRL(selectedItem.netCents, { showSign: true })}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="info-balloon-close"
+            aria-label="Fechar balão do gráfico"
+            onClick={() => setActiveYm(null)}
+          >
+            <X size={13} />
+          </button>
+        </div>
+      ) : (
+        <p className="chart-hint">Toque ou passe o mouse sobre um mês para ver o balão detalhado.</p>
+      )}
+
       <svg
         key={`${mode}-${currentYearMonth}`}
         viewBox="0 0 600 210"
@@ -133,16 +166,22 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
             const groupX = 28 + idx * 94;
             const incH = Math.max(2, Math.round((item.incomeCents / maxVal) * 140));
             const expH = Math.max(2, Math.round((item.expenseCents / maxVal) * 140));
+            const isSelected = activeYm === item.ym;
             return (
-              <g key={item.ym}>
-                {item.isCurrent && (
+              <g
+                key={item.ym}
+                style={{ cursor: 'pointer' }}
+                onMouseEnter={() => setActiveYm(item.ym)}
+                onClick={() => setActiveYm((prev) => (prev === item.ym ? null : item.ym))}
+              >
+                {(item.isCurrent || isSelected) && (
                   <rect
                     x={groupX - 8}
                     y={16}
                     width={68}
                     height={162}
                     rx={8}
-                    fill="rgba(20, 22, 25, 0.035)"
+                    fill={isSelected ? 'rgba(36, 86, 122, 0.09)' : 'rgba(20, 22, 25, 0.035)'}
                   />
                 )}
                 <rect
@@ -154,9 +193,7 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
                   height={incH}
                   rx={4}
                   fill="#0F6E56"
-                >
-                  <title>{`${item.label} — Entradas: ${formatCentsBRL(item.incomeCents)}`}</title>
-                </rect>
+                />
                 <rect
                   className="chart-bar-anim"
                   style={{ animationDelay: `${idx * 85 + 65}ms` }}
@@ -166,16 +203,14 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
                   height={expH}
                   rx={4}
                   fill="#C84B31"
-                >
-                  <title>{`${item.label} — Saídas: ${formatCentsBRL(item.expenseCents)}`}</title>
-                </rect>
+                />
                 <text
                   x={groupX + 25}
                   y={196}
                   textAnchor="middle"
                   fontSize="11.5"
-                  fontWeight={item.isCurrent ? '700' : '500'}
-                  fill={item.isCurrent ? '#141619' : '#7B8390'}
+                  fontWeight={item.isCurrent || isSelected ? '700' : '500'}
+                  fill={isSelected ? '#24567A' : item.isCurrent ? '#141619' : '#5e6673'}
                 >
                   {item.label}
                 </text>
@@ -184,8 +219,9 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
           })
         ) : (
           <g className="anim-fade-in">
-            {series.map((item, idx) =>
-              item.isCurrent ? (
+            {series.map((item, idx) => {
+              const isSelected = activeYm === item.ym;
+              return item.isCurrent || isSelected ? (
                 <rect
                   key={item.ym}
                   x={20 + idx * 94}
@@ -193,10 +229,10 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
                   width={66}
                   height={162}
                   rx={8}
-                  fill="rgba(20, 22, 25, 0.035)"
+                  fill={isSelected ? 'rgba(36, 86, 122, 0.09)' : 'rgba(20, 22, 25, 0.035)'}
                 />
-              ) : null,
-            )}
+              ) : null;
+            })}
             <path d={incomeArea} className="chart-area-fade" fill="rgba(15, 110, 86, 0.1)" />
             <path d={expenseArea} className="chart-area-fade" fill="rgba(200, 75, 49, 0.09)" />
             <path
@@ -221,31 +257,45 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
               <circle
                 key={`inc-${pt.item.ym}`}
                 className="chart-dot-pop"
-                style={{ animationDelay: `${300 + i * 95}ms` }}
+                style={{ animationDelay: `${300 + i * 95}ms`, cursor: 'pointer' }}
                 cx={pt.x}
                 cy={pt.y}
-                r={pt.item.isCurrent ? 5 : 3.8}
+                r={activeYm === pt.item.ym || pt.item.isCurrent ? 5.5 : 4}
                 fill="#FFFFFF"
                 stroke="#0F6E56"
                 strokeWidth="2.5"
-              >
-                <title>{`${pt.item.label} — Entradas: ${formatCentsBRL(pt.item.incomeCents)}`}</title>
-              </circle>
+                onMouseEnter={() => setActiveYm(pt.item.ym)}
+                onClick={() => setActiveYm((prev) => (prev === pt.item.ym ? null : pt.item.ym))}
+              />
             ))}
             {expensePoints.map((pt, i) => (
               <circle
                 key={`exp-${pt.item.ym}`}
                 className="chart-dot-pop"
-                style={{ animationDelay: `${360 + i * 95}ms` }}
+                style={{ animationDelay: `${360 + i * 95}ms`, cursor: 'pointer' }}
                 cx={pt.x}
                 cy={pt.y}
-                r={pt.item.isCurrent ? 5 : 3.8}
+                r={activeYm === pt.item.ym || pt.item.isCurrent ? 5.5 : 4}
                 fill="#FFFFFF"
                 stroke="#C84B31"
                 strokeWidth="2.5"
-              >
-                <title>{`${pt.item.label} — Saídas: ${formatCentsBRL(pt.item.expenseCents)}`}</title>
-              </circle>
+                onMouseEnter={() => setActiveYm(pt.item.ym)}
+                onClick={() => setActiveYm((prev) => (prev === pt.item.ym ? null : pt.item.ym))}
+              />
+            ))}
+            {/* Alvo amplo invisível por mês para toque confortável no Android */}
+            {series.map((item, idx) => (
+              <rect
+                key={`hit-${item.ym}`}
+                x={18 + idx * 94}
+                y={16}
+                width={70}
+                height={186}
+                fill="transparent"
+                style={{ cursor: 'pointer' }}
+                onMouseEnter={() => setActiveYm(item.ym)}
+                onClick={() => setActiveYm((prev) => (prev === item.ym ? null : item.ym))}
+              />
             ))}
             {series.map((item, idx) => (
               <text
@@ -254,8 +304,8 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
                 y={196}
                 textAnchor="middle"
                 fontSize="11.5"
-                fontWeight={item.isCurrent ? '700' : '500'}
-                fill={item.isCurrent ? '#141619' : '#7B8390'}
+                fontWeight={item.isCurrent || activeYm === item.ym ? '700' : '500'}
+                fill={activeYm === item.ym ? '#24567A' : item.isCurrent ? '#141619' : '#5e6673'}
               >
                 {item.label}
               </text>

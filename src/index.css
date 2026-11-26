@@ -985,3 +985,116 @@ textarea {
     max-width: none;
   }
 }
+
+/* Pie Chart Layout */
+.pie-layout {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+@media (max-width: 680px) {
+  .pie-layout {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+  }
+}
+
+/* Micro-animações sutis e fluidas (sem alterar cores/estilos) */
+@keyframes fadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modalEnter {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes toastEnter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.anim-tab-enter {
+  animation: fadeSlideUp 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.anim-fade-in {
+  animation: fadeIn 0.22s ease both;
+}
+
+.collapsible-body {
+  animation: fadeSlideUp 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.modal-backdrop {
+  animation: fadeIn 0.16s ease both;
+}
+
+.modal-card {
+  animation: modalEnter 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.toast {
+  animation: toastEnter 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.chart-bar-anim {
+  transition: opacity 0.15s ease, transform 0.2s ease;
+}
+
+.chart-bar-anim:hover {
+  opacity: 0.85;
+}
+
+.card-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-hairline);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-tab-enter,
+  .anim-fade-in,
+  .collapsible-body,
+  .modal-backdrop,
+  .modal-card,
+  .toast {
+    animation: none !important;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
+}

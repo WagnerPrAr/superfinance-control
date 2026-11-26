@@ -7,8 +7,9 @@ import type { Account, CreditCard, Transaction, TransactionStatus, TransactionTy
 interface NewTransactionModalProps {
   accounts: readonly Account[];
   cards: readonly CreditCard[];
+  editingTransaction?: Transaction | null;
   onClose: () => void;
-  onSave: (transactions: Transaction[], scheduleCalendarAlert: boolean) => void;
+  onSave: (transactions: Transaction[], scheduleCalendarAlert: boolean, isEdit?: boolean) => void;
 }
 
 const CATEGORIES = [
@@ -24,28 +25,52 @@ const CATEGORIES = [
   'Renda',
   'Renda Extra',
   'Investimentos',
+  'Fatura Cartão',
   'Outros',
 ];
 
-export function NewTransactionModal({ accounts, cards, onClose, onSave }: NewTransactionModalProps) {
-  const [type, setType] = useState<TransactionType>('expense');
-  const [description, setDescription] = useState('');
-  const [amountInput, setAmountInput] = useState('');
-  const [category, setCategory] = useState('Contas Fixas');
-  const [competenceDate, setCompetenceDate] = useState(getTodayIsoDate());
-  const [status, setStatus] = useState<TransactionStatus>('paid');
-  const [paymentSource, setPaymentSource] = useState<'account' | 'card'>('account');
-  const [accountId, setAccountId] = useState(accounts[0]?.id ?? '');
-  const [toAccountId, setToAccountId] = useState(accounts[1]?.id ?? accounts[0]?.id ?? '');
-  const [creditCardId, setCreditCardId] = useState(cards[0]?.id ?? '');
+function centsToInput(cents: number): string {
+  const reais = Math.trunc(Math.abs(cents) / 100);
+  const centavos = String(Math.abs(cents) % 100).padStart(2, '0');
+  return `${reais},${centavos}`;
+}
+
+export function NewTransactionModal({
+  accounts,
+  cards,
+  editingTransaction,
+  onClose,
+  onSave,
+}: NewTransactionModalProps) {
+  const isEditing = Boolean(editingTransaction);
+  const [type, setType] = useState<TransactionType>(editingTransaction?.type ?? 'expense');
+  const [description, setDescription] = useState(editingTransaction?.description ?? '');
+  const [amountInput, setAmountInput] = useState(
+    editingTransaction ? centsToInput(editingTransaction.amountCents) : '',
+  );
+  const [category, setCategory] = useState(editingTransaction?.category ?? 'Contas Fixas');
+  const [competenceDate, setCompetenceDate] = useState(
+    editingTransaction?.competenceDate ?? getTodayIsoDate(),
+  );
+  const [status, setStatus] = useState<TransactionStatus>(editingTransaction?.status ?? 'paid');
+  const [paymentSource, setPaymentSource] = useState<'account' | 'card'>(
+    editingTransaction?.creditCardId ? 'card' : 'account',
+  );
+  const [accountId, setAccountId] = useState(editingTransaction?.accountId ?? accounts[0]?.id ?? '');
+  const [toAccountId, setToAccountId] = useState(
+    editingTransaction?.toAccountId ?? accounts[1]?.id ?? accounts[0]?.id ?? '',
+  );
+  const [creditCardId, setCreditCardId] = useState(
+    editingTransaction?.creditCardId ?? cards[0]?.id ?? '',
+  );
   const [installments, setInstallments] = useState(1);
-  const [important, setImportant] = useState(false);
+  const [important, setImportant] = useState(Boolean(editingTransaction?.important));
   const [scheduleAlert, setScheduleAlert] = useState(false);
   const [error, setError] = useState('');
 
   const parsedCents = parseBRLToCents(amountInput);
   const previewSlices =
-    type === 'expense' && paymentSource === 'card' && parsedCents > 0 && installments > 1
+    !isEditing && type === 'expense' && paymentSource === 'card' && parsedCents > 0 && installments > 1
       ? splitInstallmentsCents(parsedCents, installments)
       : null;
 
@@ -62,7 +87,25 @@ export function NewTransactionModal({ accounts, cards, onClose, onSave }: NewTra
       return;
     }
     if (type === 'transfer' && accountId === toAccountId) {
-      setError('Escolha contas diferentes para origem e destino da transferência.');
+      setError('Escolha contas diferentes para origem e destino.');
+      return;
+    }
+
+    if (isEditing && editingTransaction) {
+      const updated: Transaction = {
+        ...editingTransaction,
+        description: description.trim(),
+        category: type === 'transfer' ? 'Transferência' : category,
+        amountCents: parsedCents,
+        type,
+        competenceDate,
+        status,
+        accountId: paymentSource === 'card' ? undefined : accountId,
+        toAccountId: type === 'transfer' ? toAccountId : undefined,
+        creditCardId: type === 'expense' && paymentSource === 'card' ? creditCardId : undefined,
+        important,
+      };
+      onSave([updated], scheduleAlert, true);
       return;
     }
 
@@ -85,7 +128,7 @@ export function NewTransactionModal({ accounts, cards, onClose, onSave }: NewTra
         card,
         important,
       });
-      onSave(generated, scheduleAlert);
+      onSave(generated, scheduleAlert, false);
       return;
     }
 
@@ -103,7 +146,7 @@ export function NewTransactionModal({ accounts, cards, onClose, onSave }: NewTra
       createdAtUtc: nowUtc,
     };
 
-    onSave([tx], scheduleAlert);
+    onSave([tx], scheduleAlert, false);
   }
 
   return (
@@ -112,11 +155,15 @@ export function NewTransactionModal({ accounts, cards, onClose, onSave }: NewTra
         <div className="section-header" style={{ marginBottom: 14 }}>
           <div>
             <h2 id="new-tx-title" className="section-title">
-              Novo Lançamento
+              {isEditing ? 'Editar Lançamento' : 'Novo Lançamento'}
             </h2>
-            <p className="section-desc">Valores processados em centavos inteiros exatos (zero float)</p>
+            <p className="section-desc">
+              {isEditing
+                ? 'Atualize os dados deste lançamento financeiro'
+                : 'Registre uma entrada, saída ou transferência'}
+            </p>
           </div>
-          <button type="button" className="btn btn-ghost" onClick={onClose} aria-label="Fechar modal">
+          <button type="button" className="btn btn-ghost btn-icon-only" onClick={onClose} aria-label="Fechar">
             <X size={18} />
           </button>
         </div>
@@ -127,7 +174,7 @@ export function NewTransactionModal({ accounts, cards, onClose, onSave }: NewTra
             className={type === 'expense' ? 'active' : ''}
             onClick={() => setType('expense')}
           >
-            Saída / Despesa
+            Despesa
           </button>
           <button
             type="button"
@@ -135,10 +182,10 @@ export function NewTransactionModal({ accounts, cards, onClose, onSave }: NewTra
             onClick={() => {
               setType('income');
               setPaymentSource('account');
-              setCategory('Renda');
+              if (!isEditing) setCategory('Renda');
             }}
           >
-            Entrada / Receita
+            Receita
           </button>
           <button
             type="button"
@@ -158,7 +205,7 @@ export function NewTransactionModal({ accounts, cards, onClose, onSave }: NewTra
             <input
               id="tx-desc"
               className="input"
-              placeholder="Ex.: Conta de água, Compra supermercado, Salário..."
+              placeholder="Ex.: Conta de água, Supermercado, Salário..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               autoFocus
@@ -177,7 +224,7 @@ export function NewTransactionModal({ accounts, cards, onClose, onSave }: NewTra
               />
             </div>
             <div className="field">
-              <label htmlFor="tx-date">Data de Competência / Vencimento</label>
+              <label htmlFor="tx-date">Data</label>
               <input
                 id="tx-date"
                 type="date"
@@ -220,6 +267,24 @@ export function NewTransactionModal({ accounts, cards, onClose, onSave }: NewTra
             </div>
           )}
 
+          {type === 'income' && (
+            <div className="field">
+              <label htmlFor="tx-cat-inc">Categoria</label>
+              <select
+                id="tx-cat-inc"
+                className="select"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+              >
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {type === 'expense' && paymentSource === 'card' ? (
             <div className="form-grid">
               <div className="field">
@@ -237,21 +302,23 @@ export function NewTransactionModal({ accounts, cards, onClose, onSave }: NewTra
                   ))}
                 </select>
               </div>
-              <div className="field">
-                <label htmlFor="tx-inst">Parcelas</label>
-                <select
-                  id="tx-inst"
-                  className="select"
-                  value={installments}
-                  onChange={(e) => setInstallments(Number(e.target.value))}
-                >
-                  {[1, 2, 3, 4, 5, 6, 8, 10, 12, 18, 24].map((n) => (
-                    <option key={n} value={n}>
-                      {n}x {n === 1 ? '(À vista na fatura)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {!isEditing && (
+                <div className="field">
+                  <label htmlFor="tx-inst">Parcelas</label>
+                  <select
+                    id="tx-inst"
+                    className="select"
+                    value={installments}
+                    onChange={(e) => setInstallments(Number(e.target.value))}
+                  >
+                    {[1, 2, 3, 4, 5, 6, 8, 10, 12, 18, 24].map((n) => (
+                      <option key={n} value={n}>
+                        {n}x {n === 1 ? '(À vista)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           ) : (
             <div className="form-grid">
@@ -296,8 +363,8 @@ export function NewTransactionModal({ accounts, cards, onClose, onSave }: NewTra
                     value={status}
                     onChange={(e) => setStatus(e.target.value as TransactionStatus)}
                   >
-                    <option value="paid">Pago / Liquidado</option>
-                    <option value="pending">Pendente / Agendado</option>
+                    <option value="paid">Pago</option>
+                    <option value="pending">Pendente</option>
                   </select>
                 </div>
               )}
@@ -315,7 +382,7 @@ export function NewTransactionModal({ accounts, cards, onClose, onSave }: NewTra
                 color: 'var(--ink-secondary)',
               }}
             >
-              Parcelamento exato:{' '}
+              Parcelamento:{' '}
               <strong className="mono" style={{ color: 'var(--ink-primary)' }}>
                 1ª de {formatCentsBRL(previewSlices[0])}
               </strong>{' '}
@@ -333,16 +400,18 @@ export function NewTransactionModal({ accounts, cards, onClose, onSave }: NewTra
                 checked={important}
                 onChange={(e) => setImportant(e.target.checked)}
               />
-              Marcar como conta importante (destaque nos próximos vencimentos)
+              Marcar como conta importante
             </label>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={scheduleAlert}
-                onChange={(e) => setScheduleAlert(e.target.checked)}
-              />
-              Criar alerta imediato no Google Calendar (calendário financeiro separado)
-            </label>
+            {!isEditing && (
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={scheduleAlert}
+                  onChange={(e) => setScheduleAlert(e.target.checked)}
+                />
+                Criar lembrete automático no Google Calendar
+              </label>
+            )}
           </div>
 
           {error && (
@@ -354,7 +423,7 @@ export function NewTransactionModal({ accounts, cards, onClose, onSave }: NewTra
               Cancelar
             </button>
             <button type="submit" className="btn btn-primary">
-              Salvar Lançamento
+              {isEditing ? 'Salvar Alterações' : 'Salvar Lançamento'}
             </button>
           </div>
         </form>

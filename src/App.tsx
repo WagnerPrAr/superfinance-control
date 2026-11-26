@@ -9,6 +9,7 @@ import {
   Filter,
   Landmark,
   LayoutDashboard,
+  Pencil,
   Plus,
   Repeat,
   RotateCcw,
@@ -37,6 +38,7 @@ import type {
   Transaction,
 } from './domain/types';
 import {
+  buildGoogleCalendarWebUrl,
   createCalendarAlert,
   fetchCalendarEvents,
   fetchCalendarStatus,
@@ -44,6 +46,7 @@ import {
   type CreateAlertPayload,
 } from './services/calendarApi';
 import { CashflowChart } from './components/CashflowChart';
+import { CategoryChart } from './components/CategoryChart';
 import { NewTransactionModal } from './components/NewTransactionModal';
 import { CalendarAlertsPanel, type SelectedAlertRequest } from './components/CalendarAlertsPanel';
 import { CollapsiblePanel } from './components/CollapsiblePanel';
@@ -112,6 +115,7 @@ export function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('overview');
   const [currentYm, setCurrentYm] = useState<string>(getCurrentYearMonth);
   const [showNewTxModal, setShowNewTxModal] = useState(false);
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
 
   // Preferências de exibição escolhidas pelo usuário (limpeza visual / mobile)
   const [overviewPrefs, setOverviewPrefs] = useState<OverviewPrefs>(loadOverviewPrefs);
@@ -123,13 +127,17 @@ export function App() {
   const [txFilterStatus, setTxFilterStatus] = useState<'all' | 'paid' | 'pending'>('all');
   const [txSearch, setTxSearch] = useState('');
 
-  // Formulário rápido de Conta
+  // Formulário de Conta (criar / editar)
+  const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
+  const [accFormOpen, setAccFormOpen] = useState(false);
   const [newAccName, setNewAccName] = useState('');
   const [newAccInst, setNewAccInst] = useState('');
   const [newAccType, setNewAccType] = useState<AccountType>('checking');
   const [newAccBalance, setNewAccBalance] = useState('');
 
-  // Formulário rápido de Cartão
+  // Formulário de Cartão (criar / editar)
+  const [editingCardId, setEditingCardId] = useState<string | null>(null);
+  const [cardFormOpen, setCardFormOpen] = useState(false);
   const [newCardName, setNewCardName] = useState('');
   const [newCardIssuer, setNewCardIssuer] = useState('');
   const [newCardLast4, setNewCardLast4] = useState('');
@@ -137,7 +145,9 @@ export function App() {
   const [newCardClosing, setNewCardClosing] = useState(20);
   const [newCardDue, setNewCardDue] = useState(28);
 
-  // Formulário rápido de Recorrência
+  // Formulário de Recorrência (criar / editar)
+  const [editingRecId, setEditingRecId] = useState<string | null>(null);
+  const [recFormOpen, setRecFormOpen] = useState(false);
   const [newRecTitle, setNewRecTitle] = useState('');
   const [newRecCategory, setNewRecCategory] = useState('Contas Fixas');
   const [newRecAmount, setNewRecAmount] = useState('');
@@ -371,7 +381,26 @@ export function App() {
     [calStatus?.connected, refreshCalendar, showToast],
   );
 
-  function handleSaveNewTransactions(newTxs: Transaction[], scheduleAlert: boolean) {
+  function centsToEditableStr(cents: number): string {
+    const abs = Math.abs(cents);
+    const reais = Math.trunc(abs / 100);
+    const centavos = String(abs % 100).padStart(2, '0');
+    return `${cents < 0 ? '-' : ''}${reais},${centavos}`;
+  }
+
+  function handleSaveNewTransactions(newTxs: Transaction[], scheduleAlert: boolean, isEdit?: boolean) {
+    if (isEdit && newTxs[0]) {
+      const updated = newTxs[0];
+      setState((prev) => ({
+        ...prev,
+        transactions: prev.transactions.map((tx) => (tx.id === updated.id ? updated : tx)),
+      }));
+      setEditingTx(null);
+      setShowNewTxModal(false);
+      showToast('Lançamento atualizado com sucesso.');
+      return;
+    }
+
     setState((prev) => ({
       ...prev,
       transactions: [...newTxs, ...prev.transactions],
@@ -379,7 +408,7 @@ export function App() {
     setShowNewTxModal(false);
     showToast(
       newTxs.length > 1
-        ? `${newTxs.length} parcelas registradas com precisão em centavos.`
+        ? `${newTxs.length} parcelas registradas com sucesso.`
         : 'Lançamento registrado com sucesso.',
     );
 
@@ -398,6 +427,11 @@ export function App() {
     }
   }
 
+  function handleStartEditTx(tx: Transaction) {
+    setEditingTx(tx);
+    setShowNewTxModal(true);
+  }
+
   function handleToggleTxStatus(id: string) {
     setState((prev) => ({
       ...prev,
@@ -407,59 +441,225 @@ export function App() {
     }));
   }
 
-  function handleDeleteTx(id: string) {
+  function handleDeleteTx(id: string, description: string) {
+    if (!window.confirm(`Deseja excluir o lançamento "${description}"?`)) return;
     setState((prev) => ({
       ...prev,
       transactions: prev.transactions.filter((tx) => tx.id !== id),
     }));
-    showToast('Lançamento removido.');
+    showToast('Lançamento excluído.');
+  }
+
+  function resetAccountForm() {
+    setEditingAccountId(null);
+    setNewAccName('');
+    setNewAccInst('');
+    setNewAccType('checking');
+    setNewAccBalance('');
+  }
+
+  function handleStartEditAccount(acc: Account) {
+    setEditingAccountId(acc.id);
+    setNewAccName(acc.name);
+    setNewAccInst(acc.institution);
+    setNewAccType(acc.type);
+    setNewAccBalance(centsToEditableStr(acc.initialBalanceCents));
+    setAccFormOpen(true);
+  }
+
+  function handleDeleteAccount(acc: Account) {
+    if (!window.confirm(`Deseja excluir a conta "${acc.name}"?`)) return;
+    setState((prev) => ({
+      ...prev,
+      accounts: prev.accounts.filter((a) => a.id !== acc.id),
+    }));
+    if (editingAccountId === acc.id) resetAccountForm();
+    showToast(`Conta "${acc.name}" excluída.`);
   }
 
   function handleAddAccount(e: FormEvent) {
     e.preventDefault();
     if (!newAccName.trim()) return;
+    const balanceCents = parseBRLToCents(newAccBalance);
+
+    if (editingAccountId) {
+      setState((prev) => ({
+        ...prev,
+        accounts: prev.accounts.map((a) =>
+          a.id === editingAccountId
+            ? {
+                ...a,
+                name: newAccName.trim(),
+                institution: newAccInst.trim() || 'Banco',
+                type: newAccType,
+                initialBalanceCents: balanceCents,
+              }
+            : a,
+        ),
+      }));
+      showToast(`Conta "${newAccName.trim()}" atualizada.`);
+      resetAccountForm();
+      setAccFormOpen(false);
+      return;
+    }
+
     const acc: Account = {
       id: `acc-${Date.now()}`,
       name: newAccName.trim(),
       institution: newAccInst.trim() || 'Banco',
       type: newAccType,
-      initialBalanceCents: parseBRLToCents(newAccBalance),
+      initialBalanceCents: balanceCents,
       accentColor: '#0F6E56',
     };
     setState((prev) => ({ ...prev, accounts: [...prev.accounts, acc] }));
-    setNewAccName('');
-    setNewAccInst('');
-    setNewAccBalance('');
+    resetAccountForm();
+    setAccFormOpen(false);
     showToast(`Conta "${acc.name}" adicionada.`);
+  }
+
+  function resetCardForm() {
+    setEditingCardId(null);
+    setNewCardName('');
+    setNewCardIssuer('');
+    setNewCardLast4('');
+    setNewCardLimit('');
+    setNewCardClosing(20);
+    setNewCardDue(28);
+  }
+
+  function handleStartEditCard(card: CreditCard) {
+    setEditingCardId(card.id);
+    setNewCardName(card.name);
+    setNewCardIssuer(card.issuer);
+    setNewCardLast4(card.last4);
+    setNewCardLimit(centsToEditableStr(card.limitCents));
+    setNewCardClosing(card.closingDay);
+    setNewCardDue(card.dueDay);
+    setCardFormOpen(true);
+  }
+
+  function handleDeleteCard(card: CreditCard) {
+    if (!window.confirm(`Deseja excluir o cartão "${card.name}"?`)) return;
+    setState((prev) => ({
+      ...prev,
+      cards: prev.cards.filter((c) => c.id !== card.id),
+    }));
+    if (editingCardId === card.id) resetCardForm();
+    showToast(`Cartão "${card.name}" excluído.`);
   }
 
   function handleAddCard(e: FormEvent) {
     e.preventDefault();
     const limitCents = parseBRLToCents(newCardLimit);
     if (!newCardName.trim() || limitCents <= 0) return;
+    const last4 = newCardLast4.replace(/\D/g, '').slice(-4).padStart(4, '0');
+    const closingDay = Math.max(1, Math.min(28, newCardClosing));
+    const dueDay = Math.max(1, Math.min(31, newCardDue));
+
+    if (editingCardId) {
+      setState((prev) => ({
+        ...prev,
+        cards: prev.cards.map((c) =>
+          c.id === editingCardId
+            ? {
+                ...c,
+                name: newCardName.trim(),
+                issuer: newCardIssuer.trim() || 'Cartão',
+                last4,
+                limitCents,
+                closingDay,
+                dueDay,
+              }
+            : c,
+        ),
+      }));
+      showToast(`Cartão "${newCardName.trim()}" atualizado.`);
+      resetCardForm();
+      setCardFormOpen(false);
+      return;
+    }
+
     const card: CreditCard = {
       id: `card-${Date.now()}`,
       name: newCardName.trim(),
       issuer: newCardIssuer.trim() || 'Cartão',
-      last4: newCardLast4.replace(/\D/g, '').slice(-4).padStart(4, '0'),
+      last4,
       limitCents,
-      closingDay: Math.max(1, Math.min(28, newCardClosing)),
-      dueDay: Math.max(1, Math.min(31, newCardDue)),
+      closingDay,
+      dueDay,
       defaultAccountId: state.accounts[0]?.id ?? '',
       accentColor: '#1E293B',
     };
     setState((prev) => ({ ...prev, cards: [...prev.cards, card] }));
-    setNewCardName('');
-    setNewCardIssuer('');
-    setNewCardLast4('');
-    setNewCardLimit('');
+    resetCardForm();
+    setCardFormOpen(false);
     showToast(`Cartão "${card.name}" adicionado.`);
+  }
+
+  function resetRecForm() {
+    setEditingRecId(null);
+    setNewRecTitle('');
+    setNewRecCategory('Contas Fixas');
+    setNewRecAmount('');
+    setNewRecType('expense');
+    setNewRecFreq('monthly');
+    setNewRecDay(10);
+    setNewRecImportant(true);
+  }
+
+  function handleStartEditRecurrence(rule: RecurrenceRule) {
+    setEditingRecId(rule.id);
+    setNewRecTitle(rule.title);
+    setNewRecCategory(rule.category);
+    setNewRecAmount(centsToEditableStr(rule.amountCents));
+    setNewRecType(rule.type);
+    setNewRecFreq(rule.frequency);
+    setNewRecDay(rule.dayOfMonth);
+    setNewRecImportant(rule.important);
+    setRecFormOpen(true);
+  }
+
+  function handleDeleteRecurrence(rule: RecurrenceRule) {
+    if (!window.confirm(`Deseja excluir a conta fixa "${rule.title}"?`)) return;
+    setState((prev) => ({
+      ...prev,
+      recurrences: prev.recurrences.filter((r) => r.id !== rule.id),
+    }));
+    if (editingRecId === rule.id) resetRecForm();
+    showToast(`Conta fixa "${rule.title}" excluída.`);
   }
 
   function handleAddRecurrence(e: FormEvent) {
     e.preventDefault();
     const cents = parseBRLToCents(newRecAmount);
     if (!newRecTitle.trim() || cents <= 0) return;
+    const dayOfMonth = Math.max(1, Math.min(31, newRecDay));
+
+    if (editingRecId) {
+      setState((prev) => ({
+        ...prev,
+        recurrences: prev.recurrences.map((r) =>
+          r.id === editingRecId
+            ? {
+                ...r,
+                title: newRecTitle.trim(),
+                category: newRecCategory,
+                amountCents: cents,
+                type: newRecType,
+                frequency: newRecFreq,
+                dayOfMonth,
+                important: newRecImportant,
+                autoCalendarAlert: newRecImportant,
+              }
+            : r,
+        ),
+      }));
+      showToast(`Conta fixa "${newRecTitle.trim()}" atualizada.`);
+      resetRecForm();
+      setRecFormOpen(false);
+      return;
+    }
+
     const rule: RecurrenceRule = {
       id: `rec-${Date.now()}`,
       title: newRecTitle.trim(),
@@ -468,7 +668,7 @@ export function App() {
       type: newRecType,
       frequency: newRecFreq,
       interval: 1,
-      dayOfMonth: Math.max(1, Math.min(31, newRecDay)),
+      dayOfMonth,
       startDate: `${currentYm}-01`,
       accountId: state.accounts[0]?.id,
       important: newRecImportant,
@@ -476,9 +676,9 @@ export function App() {
       active: true,
     };
     setState((prev) => ({ ...prev, recurrences: [rule, ...prev.recurrences] }));
-    setNewRecTitle('');
-    setNewRecAmount('');
-    showToast(`Regra recorrente "${rule.title}" cadastrada.`);
+    resetRecForm();
+    setRecFormOpen(false);
+    showToast(`Conta fixa "${rule.title}" cadastrada.`);
   }
 
   function handleRunRecurrenceEngine(targetYm: string) {
@@ -490,14 +690,14 @@ export function App() {
       cardsMap,
     );
     if (generated.length === 0) {
-      showToast(`Motor idempotente: todas as recorrências de ${targetYm} já foram geradas (0 duplicatas).`);
+      showToast(`Todas as contas fixas de ${targetYm} já estão lançadas (nenhuma duplicada).`);
       return;
     }
     setState((prev) => ({
       ...prev,
       transactions: [...generated, ...prev.transactions],
     }));
-    showToast(`${generated.length} lançamento(s) recorrente(s) gerado(s) para ${targetYm}.`);
+    showToast(`${generated.length} conta(s) fixa(s) lançada(s) para ${targetYm}.`);
   }
 
   function handlePayCardStatement(card: CreditCard, period: string) {
@@ -505,7 +705,7 @@ export function App() {
       (tx) => tx.creditCardId === card.id && tx.statementPeriod === period && tx.status === 'pending',
     );
     if (statementTxs.length === 0) {
-      showToast('Esta fatura não possui itens pendentes.');
+      showToast('Esta fatura já está paga ou não tem compras.');
       return;
     }
     const total = sumCents(statementTxs.map((t) => t.amountCents));
@@ -530,10 +730,11 @@ export function App() {
         ),
       ],
     }));
-    showToast(`Fatura ${period} de ${card.name} (${formatCentsBRL(total)}) liquidada!`);
+    showToast(`Fatura ${period} de ${card.name} (${formatCentsBRL(total)}) marcada como paga!`);
   }
 
   function handleResetDemo() {
+    if (!window.confirm('Restaurar os dados iniciais de demonstração?')) return;
     const fresh = buildInitialSeedState();
     setState(fresh);
     showToast('Dados de demonstração restaurados.');
@@ -542,27 +743,27 @@ export function App() {
   const pageMeta: Record<NavTab, { title: string; subtitle: string }> = {
     overview: {
       title: 'Visão Geral',
-      subtitle: `Competência ${currentYm} • Precisão contábil em centavos inteiros`,
+      subtitle: `Resumo financeiro de ${currentYm}`,
     },
     accounts: {
-      title: 'Contas Bancárias & Reservas',
-      subtitle: 'Saldos calculados dinamicamente sobre lançamentos liquidados',
+      title: 'Contas & Reservas',
+      subtitle: 'Acompanhe seus saldos atualizados em cada conta',
     },
     cards: {
-      title: 'Cartões de Crédito & Faturas',
-      subtitle: 'Fechamento separado do vencimento com parcelamento explícito por fatura',
+      title: 'Cartões & Faturas',
+      subtitle: 'Controle limites, datas de fechamento e faturas mensais',
     },
     transactions: {
-      title: 'Entradas & Saídas',
-      subtitle: 'Extrato unificado de receitas, despesas, faturas e transferências',
+      title: 'Lançamentos',
+      subtitle: 'Todas as suas receitas, despesas e transferências',
     },
     recurrences: {
-      title: 'Dívidas & Contas Recorrentes',
-      subtitle: 'Motor idempotente com proteção contra duplicidade e alerta no Google Calendar',
+      title: 'Contas Fixas',
+      subtitle: 'Gerencie dívidas recorrentes, assinaturas e receitas mensais',
     },
     calendar: {
-      title: 'Integração Google Calendar',
-      subtitle: 'Alertas financeiros em calendário secundário isolado da sua agenda pessoal',
+      title: 'Alertas no Google Calendar',
+      subtitle: 'Crie lembretes de pagamento em uma agenda separada da sua pessoal',
     },
   };
 
@@ -707,6 +908,7 @@ export function App() {
           </div>
         </header>
 
+        <div key={activeTab} className="anim-tab-enter">
         {/* TAB: VISÃO GERAL */}
         {activeTab === 'overview' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -738,7 +940,7 @@ export function App() {
                   className={`chip-toggle ${overviewPrefs.showCategories ? 'active' : ''}`}
                   onClick={() => toggleOverviewPref('showCategories')}
                 >
-                  Despesas por Categoria
+                  Gastos por Categoria
                 </button>
               </div>
             )}
@@ -754,7 +956,7 @@ export function App() {
                   <Landmark size={16} />
                 </div>
                 <div className="kpi-value mono">{formatCentsBRL(netWorthCents)}</div>
-                <div className="kpi-meta">Contas menos faturas em aberto</div>
+                <div className="kpi-meta">Saldo total menos faturas abertas</div>
               </div>
 
               {overviewPrefs.showSecondaryKpis && (
@@ -775,7 +977,7 @@ export function App() {
                     </div>
                     <div className="kpi-value mono text-terracotta">{formatCentsBRL(monthExpenseCents)}</div>
                     <div className="kpi-meta">
-                      Saldo:{' '}
+                      Saldo do mês:{' '}
                       <strong className={`mono ${monthResultCents >= 0 ? 'text-emerald' : 'text-terracotta'}`}>
                         {formatCentsBRL(monthResultCents, { showSign: true })}
                       </strong>
@@ -784,11 +986,11 @@ export function App() {
 
                   <div className="surface">
                     <div className="kpi-label">
-                      <span>Cartões em Aberto</span>
+                      <span>Faturas em Aberto</span>
                       <CreditCardIcon size={16} className="text-navy" />
                     </div>
                     <div className="kpi-value mono text-navy">{formatCentsBRL(totalOpenCardsCents)}</div>
-                    <div className="kpi-meta">{state.cards.length} cartão(ões)</div>
+                    <div className="kpi-meta">Em {state.cards.length} cartão(ões)</div>
                   </div>
                 </>
               )}
@@ -797,12 +999,12 @@ export function App() {
             {overviewPrefs.showUpcoming && (
               <CollapsiblePanel
                 title="Próximos Vencimentos"
-                subtitle="Contas importantes com alerta rápido"
+                subtitle="Contas importantes com lembrete rápido"
                 defaultOpen={true}
                 summary={<span className="tag tag-amber">{importantPendingTxs.length} pendentes</span>}
                 headerAction={
                   <button type="button" className="btn btn-sm" onClick={() => setActiveTab('calendar')}>
-                    Agenda
+                    Ver Agenda
                   </button>
                 }
               >
@@ -824,27 +1026,44 @@ export function App() {
                           <span className="mono text-terracotta" style={{ fontWeight: 600 }}>
                             {formatCentsBRL(tx.amountCents)}
                           </span>
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-icon-only"
-                            title="Criar alerta no Google Calendar"
-                            aria-label={`Alertar ${tx.description} no Google Calendar`}
-                            disabled={creatingAlert || !calStatus?.connected}
-                            onClick={() =>
-                              void handleCreateCalendarAlert(
-                                {
-                                  summary: `[SuperFinance] Pagar ${tx.description} (${formatCentsBRL(tx.amountCents)})`,
-                                  date: tx.competenceDate,
-                                  description: `Categoria: ${tx.category}\nValor: ${formatCentsBRL(tx.amountCents)}`,
-                                  allDay: true,
-                                  colorId: '11',
-                                },
-                                tx.id,
-                              )
-                            }
-                          >
-                            <Bell size={15} />
-                          </button>
+                          {calStatus?.connected ? (
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-icon-only"
+                              title="Criar lembrete no Google Calendar"
+                              aria-label={`Alertar ${tx.description} no Google Calendar`}
+                              disabled={creatingAlert}
+                              onClick={() =>
+                                void handleCreateCalendarAlert(
+                                  {
+                                    summary: `[SuperFinance] Pagar ${tx.description} (${formatCentsBRL(tx.amountCents)})`,
+                                    date: tx.competenceDate,
+                                    description: `Categoria: ${tx.category}\nValor: ${formatCentsBRL(tx.amountCents)}`,
+                                    allDay: true,
+                                    colorId: '11',
+                                  },
+                                  tx.id,
+                                )
+                              }
+                            >
+                              <Bell size={15} />
+                            </button>
+                          ) : (
+                            <a
+                              className="btn btn-sm btn-icon-only"
+                              title="Agendar lembrete no Google Calendar"
+                              aria-label={`Agendar ${tx.description} no Google Calendar`}
+                              href={buildGoogleCalendarWebUrl({
+                                summary: `[SuperFinance] Pagar ${tx.description} (${formatCentsBRL(tx.amountCents)})`,
+                                date: tx.competenceDate,
+                                description: `Categoria: ${tx.category}\nValor: ${formatCentsBRL(tx.amountCents)}`,
+                              })}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              <Bell size={15} />
+                            </a>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -856,7 +1075,7 @@ export function App() {
             {overviewPrefs.showCashflow && (
               <CollapsiblePanel
                 title="Fluxo de Caixa (6 meses)"
-                subtitle="Entradas vs. Saídas por competência"
+                subtitle="Compare entradas e saídas em barras ou curvas"
                 defaultOpen={true}
                 summary={
                   <span className={`mono ${monthResultCents >= 0 ? 'text-emerald' : 'text-terracotta'}`} style={{ fontWeight: 700, fontSize: 13 }}>
@@ -870,8 +1089,8 @@ export function App() {
 
             {overviewPrefs.showCategories && (
               <CollapsiblePanel
-                title={`Despesas por Categoria (${currentYm})`}
-                subtitle="Distribuição proporcional dos gastos"
+                title={`Gastos por Categoria (${currentYm})`}
+                subtitle="Visualize a distribuição em pizza ou barras"
                 defaultOpen={true}
                 summary={
                   <span className="mono text-terracotta" style={{ fontWeight: 700, fontSize: 13 }}>
@@ -879,28 +1098,7 @@ export function App() {
                   </span>
                 }
               >
-                {categoryBreakdown.length === 0 ? (
-                  <p className="section-desc">Nenhuma despesa registrada neste mês.</p>
-                ) : (
-                  <div className="grid-3">
-                    {categoryBreakdown.map((item) => {
-                      const pct = monthExpenseCents > 0 ? Math.round((item.cents / monthExpenseCents) * 100) : 0;
-                      return (
-                        <div key={item.category} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13.5 }}>
-                            <span style={{ fontWeight: 600 }}>{item.category}</span>
-                            <span className="mono" style={{ fontWeight: 600 }}>
-                              {formatCentsBRL(item.cents)} <span style={{ color: 'var(--ink-muted)' }}>({pct}%)</span>
-                            </span>
-                          </div>
-                          <div className="progress-track-light">
-                            <div className="progress-fill-dark" style={{ width: `${Math.max(4, pct)}%` }} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                <CategoryChart items={categoryBreakdown} totalExpenseCents={monthExpenseCents} />
               </CollapsiblePanel>
             )}
           </div>
@@ -908,7 +1106,7 @@ export function App() {
 
         {/* TAB: CONTAS */}
         {activeTab === 'accounts' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             <div className="grid-3">
               {state.accounts.map((acc) => {
                 const bal = accountBalances.get(acc.id) ?? acc.initialBalanceCents;
@@ -925,16 +1123,37 @@ export function App() {
                     <div className="kpi-meta">
                       Saldo inicial: <span className="mono">{formatCentsBRL(acc.initialBalanceCents)}</span>
                     </div>
+                    <div className="card-actions-row">
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        onClick={() => handleStartEditAccount(acc)}
+                      >
+                        <Pencil size={13} /> Editar
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        aria-label={`Excluir conta ${acc.name}`}
+                        onClick={() => handleDeleteAccount(acc)}
+                      >
+                        <Trash2 size={14} /> Excluir
+                      </button>
+                    </div>
                   </div>
                 );
               })}
             </div>
 
             <CollapsiblePanel
-              title="Adicionar Nova Conta"
-              subtitle="Cadastre conta corrente, reserva, dinheiro ou investimento"
-              defaultOpen={false}
-              summary={<span className="tag">+ Nova</span>}
+              title={editingAccountId ? 'Editar Conta' : 'Adicionar Nova Conta'}
+              subtitle="Cadastre ou atualize conta corrente, reserva, dinheiro ou investimento"
+              open={accFormOpen}
+              onToggle={(next) => {
+                setAccFormOpen(next);
+                if (!next && editingAccountId) resetAccountForm();
+              }}
+              summary={<span className="tag">{editingAccountId ? 'Editando' : '+ Nova'}</span>}
             >
               <form onSubmit={handleAddAccount} className="form-grid">
                 <div className="field">
@@ -949,7 +1168,7 @@ export function App() {
                   />
                 </div>
                 <div className="field">
-                  <label htmlFor="acc-inst">Instituição</label>
+                  <label htmlFor="acc-inst">Banco / Instituição</label>
                   <input
                     id="acc-inst"
                     className="input"
@@ -959,7 +1178,7 @@ export function App() {
                   />
                 </div>
                 <div className="field">
-                  <label htmlFor="acc-type">Tipo</label>
+                  <label htmlFor="acc-type">Tipo de Conta</label>
                   <select
                     id="acc-type"
                     className="select"
@@ -982,9 +1201,21 @@ export function App() {
                     onChange={(e) => setNewAccBalance(e.target.value)}
                   />
                 </div>
-                <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end' }}>
+                <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                  {editingAccountId && (
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => {
+                        resetAccountForm();
+                        setAccFormOpen(false);
+                      }}
+                    >
+                      Cancelar
+                    </button>
+                  )}
                   <button type="submit" className="btn btn-primary">
-                    <Plus size={15} /> Cadastrar Conta
+                    <Plus size={15} /> {editingAccountId ? 'Salvar Alterações' : 'Cadastrar Conta'}
                   </button>
                 </div>
               </form>
@@ -1010,20 +1241,42 @@ export function App() {
                 return (
                   <div key={card.id} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     <div className="credit-card-tile" style={{ background: card.accentColor }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
                         <div>
                           <div style={{ fontSize: 12, opacity: 0.78 }}>{card.issuer}</div>
                           <div style={{ fontSize: 18, fontWeight: 700 }}>{card.name}</div>
                         </div>
-                        <span className="mono" style={{ fontSize: 13, opacity: 0.9 }}>
-                          •••• {card.last4}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span className="mono" style={{ fontSize: 13, opacity: 0.9 }}>
+                            •••• {card.last4}
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-icon-only"
+                            style={{ background: 'rgba(255,255,255,0.14)', borderColor: 'rgba(255,255,255,0.24)', color: '#fff' }}
+                            title="Editar cartão"
+                            aria-label={`Editar cartão ${card.name}`}
+                            onClick={() => handleStartEditCard(card)}
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-icon-only"
+                            style={{ background: 'rgba(255,255,255,0.14)', borderColor: 'rgba(255,255,255,0.24)', color: '#fff' }}
+                            title="Excluir cartão"
+                            aria-label={`Excluir cartão ${card.name}`}
+                            onClick={() => handleDeleteCard(card)}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </div>
 
                       <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 6 }}>
-                          <span>Limite utilizado ({usagePct}%)</span>
-                          <span className="mono">Disp.: {formatCentsBRL(availCents)}</span>
+                          <span>Limite usado ({usagePct}%)</span>
+                          <span className="mono">Disponível: {formatCentsBRL(availCents)}</span>
                         </div>
                         <div className="progress-track">
                           <div className="progress-fill" style={{ width: `${usagePct}%` }} />
@@ -1033,13 +1286,13 @@ export function App() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, opacity: 0.9, flexWrap: 'wrap', gap: 6 }}>
                         <span>Fecha dia {card.closingDay}</span>
                         <span>Vence dia {card.dueDay}</span>
-                        <span className="mono">{formatCentsBRL(card.limitCents)}</span>
+                        <span className="mono">Limite: {formatCentsBRL(card.limitCents)}</span>
                       </div>
                     </div>
 
                     <CollapsiblePanel
                       title={`Fatura ${stmtPeriod}`}
-                      subtitle={`Vencimento ${stmtDueDate} • ${stmtTxs.length} item(ns)`}
+                      subtitle={`Vencimento ${stmtDueDate} • ${stmtTxs.length} compra(s)`}
                       defaultOpen={false}
                       summary={
                         <span className="mono" style={{ fontWeight: 700, fontSize: 15 }}>
@@ -1048,7 +1301,7 @@ export function App() {
                       }
                     >
                       {stmtTxs.length === 0 ? (
-                        <p className="section-desc" style={{ marginBottom: 14 }}>Sem compras lançadas nesta fatura.</p>
+                        <p className="section-desc" style={{ marginBottom: 14 }}>Nenhuma compra lançada nesta fatura.</p>
                       ) : (
                         <div className="list-stack" style={{ marginBottom: 14 }}>
                           {stmtTxs.map((tx) => (
@@ -1078,24 +1331,39 @@ export function App() {
                           disabled={stmtCents === 0}
                           onClick={() => handlePayCardStatement(card, stmtPeriod)}
                         >
-                          <Check size={14} /> Marcar Fatura Paga
+                          <Check size={14} /> Marcar como Paga
                         </button>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-navy"
-                          disabled={creatingAlert || !calStatus?.connected}
-                          onClick={() =>
-                            void handleCreateCalendarAlert({
+                        {calStatus?.connected ? (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-navy"
+                            disabled={creatingAlert}
+                            onClick={() =>
+                              void handleCreateCalendarAlert({
+                                summary: `[SuperFinance] Vencimento Fatura ${card.name} (${formatCentsBRL(stmtCents)})`,
+                                date: stmtDueDate,
+                                description: `Fatura ${stmtPeriod} • Cartão ${card.name} (•••• ${card.last4})\nValor atual: ${formatCentsBRL(stmtCents)}`,
+                                allDay: true,
+                                colorId: '9',
+                              })
+                            }
+                          >
+                            <Bell size={14} /> Lembrete no Calendar
+                          </button>
+                        ) : (
+                          <a
+                            className="btn btn-sm btn-navy"
+                            href={buildGoogleCalendarWebUrl({
                               summary: `[SuperFinance] Vencimento Fatura ${card.name} (${formatCentsBRL(stmtCents)})`,
                               date: stmtDueDate,
                               description: `Fatura ${stmtPeriod} • Cartão ${card.name} (•••• ${card.last4})\nValor atual: ${formatCentsBRL(stmtCents)}`,
-                              allDay: true,
-                              colorId: '9',
-                            })
-                          }
-                        >
-                          <Bell size={14} /> Alertar no Calendar
-                        </button>
+                            })}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <Bell size={14} /> Lembrete no Calendar
+                          </a>
+                        )}
                       </div>
                     </CollapsiblePanel>
                   </div>
@@ -1104,10 +1372,14 @@ export function App() {
             </div>
 
             <CollapsiblePanel
-              title="Adicionar Cartão de Crédito"
-              subtitle="Configure limite, dia de fechamento e vencimento"
-              defaultOpen={false}
-              summary={<span className="tag">+ Novo</span>}
+              title={editingCardId ? 'Editar Cartão de Crédito' : 'Adicionar Cartão de Crédito'}
+              subtitle="Defina limite, dia de fechamento e vencimento da fatura"
+              open={cardFormOpen}
+              onToggle={(next) => {
+                setCardFormOpen(next);
+                if (!next && editingCardId) resetCardForm();
+              }}
+              summary={<span className="tag">{editingCardId ? 'Editando' : '+ Novo'}</span>}
             >
               <form onSubmit={handleAddCard} className="form-grid">
                 <div className="field">
@@ -1122,7 +1394,7 @@ export function App() {
                   />
                 </div>
                 <div className="field">
-                  <label htmlFor="c-issuer">Emissor</label>
+                  <label htmlFor="c-issuer">Banco / Emissor</label>
                   <input
                     id="c-issuer"
                     className="input"
@@ -1177,9 +1449,21 @@ export function App() {
                     onChange={(e) => setNewCardDue(Number(e.target.value))}
                   />
                 </div>
-                <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end' }}>
+                <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                  {editingCardId && (
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => {
+                        resetCardForm();
+                        setCardFormOpen(false);
+                      }}
+                    >
+                      Cancelar
+                    </button>
+                  )}
                   <button type="submit" className="btn btn-primary">
-                    <Plus size={15} /> Cadastrar Cartão
+                    <Plus size={15} /> {editingCardId ? 'Salvar Alterações' : 'Cadastrar Cartão'}
                   </button>
                 </div>
               </form>
@@ -1278,13 +1562,23 @@ export function App() {
                           className={`btn btn-sm ${tx.status === 'paid' ? '' : 'btn-emerald'}`}
                           onClick={() => handleToggleTxStatus(tx.id)}
                         >
-                          {tx.status === 'paid' ? 'Pago' : 'Marcar Pago'}
+                          {tx.status === 'paid' ? 'Pago' : 'Pagar'}
                         </button>
                         <button
                           type="button"
-                          className="btn btn-ghost btn-sm"
-                          aria-label="Excluir lançamento"
-                          onClick={() => handleDeleteTx(tx.id)}
+                          className="btn btn-ghost btn-sm btn-icon-only"
+                          title="Editar lançamento"
+                          aria-label={`Editar ${tx.description}`}
+                          onClick={() => handleStartEditTx(tx)}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm btn-icon-only"
+                          title="Excluir lançamento"
+                          aria-label={`Excluir ${tx.description}`}
+                          onClick={() => handleDeleteTx(tx.id, tx.description)}
                         >
                           <Trash2 size={14} />
                         </button>
@@ -1297,16 +1591,15 @@ export function App() {
           </div>
         )}
 
-        {/* TAB: DÍVIDAS RECORRENTES */}
+        {/* TAB: CONTAS FIXAS (RECORRENTES) */}
         {activeTab === 'recurrences' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             <div className="surface">
               <div className="section-header">
                 <div>
-                  <h2 className="section-title">Motor Idempotente de Recorrências</h2>
+                  <h2 className="section-title">Contas Fixas & Recorrentes</h2>
                   <p className="section-desc">
-                    Gera lançamentos de {currentYm} ou do próximo mês sem risco de duplicação (chave única{' '}
-                    <code className="mono">ruleId::YYYY-MM</code>)
+                    Lance automaticamente suas contas fixas no mês sem risco de duplicar
                   </p>
                 </div>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -1315,7 +1608,7 @@ export function App() {
                     className="btn btn-primary btn-sm"
                     onClick={() => handleRunRecurrenceEngine(currentYm)}
                   >
-                    <Repeat size={14} /> Gerar {currentYm}
+                    <Repeat size={14} /> Lançar {currentYm}
                   </button>
                   <button
                     type="button"
@@ -1328,55 +1621,95 @@ export function App() {
               </div>
 
               <div className="list-stack">
-                {state.recurrences.map((rule) => (
-                  <div key={rule.id} className="list-row">
-                    <div className="list-row-main">
-                      <div className="list-row-title">
-                        {rule.title}
-                        <span className="tag">{FREQ_LABELS[rule.frequency]}</span>
-                        {rule.important && <span className="tag tag-amber">Importante</span>}
+                {state.recurrences.map((rule) => {
+                  const nextAlertDate = `${currentYm}-${String(Math.min(28, rule.dayOfMonth)).padStart(2, '0')}`;
+                  return (
+                    <div key={rule.id} className="list-row">
+                      <div className="list-row-main">
+                        <div className="list-row-title">
+                          {rule.title}
+                          <span className="tag">{FREQ_LABELS[rule.frequency]}</span>
+                          {rule.important && <span className="tag tag-amber">Importante</span>}
+                        </div>
+                        <div className="list-row-sub">
+                          <span>{rule.category}</span>
+                          <span>•</span>
+                          <span className="mono">Todo dia {rule.dayOfMonth}</span>
+                        </div>
                       </div>
-                      <div className="list-row-sub">
-                        <span>{rule.category}</span>
-                        <span>•</span>
-                        <span className="mono">Dia {rule.dayOfMonth} de cada período</span>
+                      <div className="list-row-right">
+                        <span
+                          className={`mono ${rule.type === 'income' ? 'text-emerald' : 'text-terracotta'}`}
+                          style={{ fontWeight: 700 }}
+                        >
+                          {formatCentsBRL(rule.amountCents)}
+                        </span>
+                        {calStatus?.connected ? (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-navy"
+                            disabled={creatingAlert}
+                            onClick={() =>
+                              void handleCreateCalendarAlert({
+                                summary: `[SuperFinance] ${rule.title} (${formatCentsBRL(rule.amountCents)})`,
+                                date: nextAlertDate,
+                                description: `Conta fixa (${FREQ_LABELS[rule.frequency]}) • Categoria: ${rule.category}`,
+                                recurringFreq: rule.frequency.toUpperCase() as 'MONTHLY' | 'WEEKLY' | 'YEARLY',
+                                allDay: false,
+                                colorId: '11',
+                              })
+                            }
+                          >
+                            <Bell size={13} /> Calendar
+                          </button>
+                        ) : (
+                          <a
+                            className="btn btn-sm btn-navy"
+                            href={buildGoogleCalendarWebUrl({
+                              summary: `[SuperFinance] ${rule.title} (${formatCentsBRL(rule.amountCents)})`,
+                              date: nextAlertDate,
+                              description: `Conta fixa (${FREQ_LABELS[rule.frequency]}) • Categoria: ${rule.category}`,
+                            })}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <Bell size={13} /> Calendar
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm btn-icon-only"
+                          title="Editar conta fixa"
+                          aria-label={`Editar ${rule.title}`}
+                          onClick={() => handleStartEditRecurrence(rule)}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm btn-icon-only"
+                          title="Excluir conta fixa"
+                          aria-label={`Excluir ${rule.title}`}
+                          onClick={() => handleDeleteRecurrence(rule)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
                     </div>
-                    <div className="list-row-right">
-                      <span
-                        className={`mono ${rule.type === 'income' ? 'text-emerald' : 'text-terracotta'}`}
-                        style={{ fontWeight: 700 }}
-                      >
-                        {formatCentsBRL(rule.amountCents)}
-                      </span>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-navy"
-                        disabled={creatingAlert || !calStatus?.connected}
-                        onClick={() =>
-                          void handleCreateCalendarAlert({
-                            summary: `[SuperFinance] ${rule.title} (${formatCentsBRL(rule.amountCents)})`,
-                            date: `${currentYm}-${String(Math.min(28, rule.dayOfMonth)).padStart(2, '0')}`,
-                            description: `Dívida/Conta recorrente (${FREQ_LABELS[rule.frequency]}) • Categoria: ${rule.category}`,
-                            recurringFreq: rule.frequency.toUpperCase() as 'MONTHLY' | 'WEEKLY' | 'YEARLY',
-                            allDay: false,
-                            colorId: '11',
-                          })
-                        }
-                      >
-                        <Bell size={13} /> Série no Calendar
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
             <CollapsiblePanel
-              title="Nova Dívida / Conta Recorrente"
-              subtitle="Cadastre contas fixas, assinaturas ou receitas periódicas"
-              defaultOpen={false}
-              summary={<span className="tag">+ Nova</span>}
+              title={editingRecId ? 'Editar Conta Fixa' : 'Nova Conta Fixa'}
+              subtitle="Cadastre ou atualize contas fixas, assinaturas ou receitas mensais"
+              open={recFormOpen}
+              onToggle={(next) => {
+                setRecFormOpen(next);
+                if (!next && editingRecId) resetRecForm();
+              }}
+              summary={<span className="tag">{editingRecId ? 'Editando' : '+ Nova'}</span>}
             >
               <form onSubmit={handleAddRecurrence} className="form-grid">
                 <div className="field">
@@ -1409,8 +1742,8 @@ export function App() {
                     value={newRecType}
                     onChange={(e) => setNewRecType(e.target.value as 'expense' | 'income')}
                   >
-                    <option value="expense">Dívida / Despesa Recorrente</option>
-                    <option value="income">Receita Recorrente</option>
+                    <option value="expense">Despesa / Dívida Fixa</option>
+                    <option value="income">Receita Fixa</option>
                   </select>
                 </div>
                 <div className="field">
@@ -1427,7 +1760,7 @@ export function App() {
                   </select>
                 </div>
                 <div className="field">
-                  <label htmlFor="r-day">Dia de Vencimento (1–31)</label>
+                  <label htmlFor="r-day">Dia do Vencimento (1–31)</label>
                   <input
                     id="r-day"
                     type="number"
@@ -1454,11 +1787,25 @@ export function App() {
                       checked={newRecImportant}
                       onChange={(e) => setNewRecImportant(e.target.checked)}
                     />
-                    Conta importante (destaque para alertas no Google Calendar)
+                    Marcar como conta importante
                   </label>
-                  <button type="submit" className="btn btn-primary">
-                    <Plus size={15} /> Cadastrar Recorrência
-                  </button>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    {editingRecId && (
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={() => {
+                          resetRecForm();
+                          setRecFormOpen(false);
+                        }}
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                    <button type="submit" className="btn btn-primary">
+                      <Plus size={15} /> {editingRecId ? 'Salvar Alterações' : 'Cadastrar Conta Fixa'}
+                    </button>
+                  </div>
                 </div>
               </form>
             </CollapsiblePanel>
@@ -1479,6 +1826,7 @@ export function App() {
             onBatchSyncAlerts={handleBatchSyncAlerts}
           />
         )}
+        </div>
       </main>
 
       {/* Navegação Mobile fixa na zona do polegar (alvos >= 50px) */}
@@ -1540,7 +1888,11 @@ export function App() {
         <NewTransactionModal
           accounts={state.accounts}
           cards={state.cards}
-          onClose={() => setShowNewTxModal(false)}
+          editingTransaction={editingTx}
+          onClose={() => {
+            setShowNewTxModal(false);
+            setEditingTx(null);
+          }}
           onSave={handleSaveNewTransactions}
         />
       )}

@@ -1,8 +1,8 @@
-import { useState } from 'react';
 import { BarChart3, TrendingUp } from 'lucide-react';
 import { shiftYearMonth } from '../domain/ledger';
 import { formatCentsBRL, sumCents } from '../domain/money';
 import type { Transaction } from '../domain/types';
+import { usePersistedState } from '../hooks/usePersistedState';
 
 interface CashflowChartProps {
   transactions: readonly Transaction[];
@@ -27,7 +27,7 @@ function buildSmoothCurvePath(points: readonly { x: number; y: number }[]): stri
 }
 
 export function CashflowChart({ transactions, currentYearMonth }: CashflowChartProps) {
-  const [mode, setMode] = useState<ChartMode>('bars');
+  const [mode, setMode] = usePersistedState<ChartMode>('superfinance_cashflow_mode_v1', 'bars');
   const months = [-4, -3, -2, -1, 0, 1].map((delta) => shiftYearMonth(currentYearMonth, delta));
 
   const series = months.map((ym) => {
@@ -107,6 +107,7 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
       </div>
 
       <svg
+        key={`${mode}-${currentYearMonth}`}
         viewBox="0 0 600 210"
         style={{ width: '100%', height: 'auto', display: 'block' }}
         role="img"
@@ -146,6 +147,7 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
                 )}
                 <rect
                   className="chart-bar-anim"
+                  style={{ animationDelay: `${idx * 85}ms` }}
                   x={groupX}
                   y={170 - incH}
                   width={22}
@@ -157,6 +159,7 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
                 </rect>
                 <rect
                   className="chart-bar-anim"
+                  style={{ animationDelay: `${idx * 85 + 65}ms` }}
                   x={groupX + 28}
                   y={170 - expH}
                   width={22}
@@ -218,7 +221,7 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
               <circle
                 key={`inc-${pt.item.ym}`}
                 className="chart-dot-pop"
-                style={{ animationDelay: `${180 + i * 45}ms` }}
+                style={{ animationDelay: `${300 + i * 95}ms` }}
                 cx={pt.x}
                 cy={pt.y}
                 r={pt.item.isCurrent ? 5 : 3.8}
@@ -233,7 +236,7 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
               <circle
                 key={`exp-${pt.item.ym}`}
                 className="chart-dot-pop"
-                style={{ animationDelay: `${220 + i * 45}ms` }}
+                style={{ animationDelay: `${360 + i * 95}ms` }}
                 cx={pt.x}
                 cy={pt.y}
                 r={pt.item.isCurrent ? 5 : 3.8}

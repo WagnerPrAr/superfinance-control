@@ -52,6 +52,7 @@ import { CalendarAlertsPanel, type SelectedAlertRequest } from './components/Cal
 import { CollapsiblePanel } from './components/CollapsiblePanel';
 import { AnimatedCurrency } from './components/AnimatedCurrency';
 import { SwipeableTransactionRow } from './components/SwipeableTransactionRow';
+import { usePersistedState } from './hooks/usePersistedState';
 
 type NavTab = 'overview' | 'accounts' | 'cards' | 'transactions' | 'recurrences' | 'calendar';
 
@@ -123,50 +124,56 @@ function loadInitialState(): FinanceState {
 
 export function App() {
   const [state, setState] = useState<FinanceState>(loadInitialState);
-  const [activeTab, setActiveTab] = useState<NavTab>('overview');
-  const [currentYm, setCurrentYm] = useState<string>(getCurrentYearMonth);
+  const [activeTab, setActiveTab] = usePersistedState<NavTab>('sf_active_tab_v1', 'overview');
+  const [currentYm, setCurrentYm] = usePersistedState<string>('sf_current_ym_v1', getCurrentYearMonth());
   const [showNewTxModal, setShowNewTxModal] = useState(false);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [justPaidId, setJustPaidId] = useState<string | null>(null);
 
-  // Preferências de exibição escolhidas pelo usuário (limpeza visual / mobile)
+  // Preferências de exibição escolhidas pelo usuário (persistidas entre telas e reloads)
   const [overviewPrefs, setOverviewPrefs] = useState<OverviewPrefs>(loadOverviewPrefs);
-  const [showCustomizer, setShowCustomizer] = useState(false);
-  const [showTxFilters, setShowTxFilters] = useState(false);
+  const [showCustomizer, setShowCustomizer] = usePersistedState<boolean>('sf_show_customizer_v1', false);
+  const [showTxFilters, setShowTxFilters] = usePersistedState<boolean>('sf_show_tx_filters_v1', false);
 
-  // Filtros de Lançamentos
-  const [txFilterType, setTxFilterType] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
-  const [txFilterStatus, setTxFilterStatus] = useState<'all' | 'paid' | 'pending'>('all');
-  const [txSearch, setTxSearch] = useState('');
+  // Filtros de Lançamentos persistidos
+  const [txFilterType, setTxFilterType] = usePersistedState<'all' | 'income' | 'expense' | 'transfer'>(
+    'sf_tx_filter_type_v1',
+    'all',
+  );
+  const [txFilterStatus, setTxFilterStatus] = usePersistedState<'all' | 'paid' | 'pending'>(
+    'sf_tx_filter_status_v1',
+    'all',
+  );
+  const [txSearch, setTxSearch] = usePersistedState<string>('sf_tx_search_v1', '');
 
-  // Formulário de Conta (criar / editar)
-  const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
-  const [accFormOpen, setAccFormOpen] = useState(false);
-  const [newAccName, setNewAccName] = useState('');
-  const [newAccInst, setNewAccInst] = useState('');
-  const [newAccType, setNewAccType] = useState<AccountType>('checking');
-  const [newAccBalance, setNewAccBalance] = useState('');
+  // Formulário de Conta (criar / editar) com rascunho persistido
+  const [editingAccountId, setEditingAccountId] = usePersistedState<string | null>('sf_edit_acc_id_v1', null);
+  const [accFormOpen, setAccFormOpen] = usePersistedState<boolean>('sf_acc_form_open_v1', false);
+  const [newAccName, setNewAccName] = usePersistedState<string>('sf_acc_draft_name_v1', '');
+  const [newAccInst, setNewAccInst] = usePersistedState<string>('sf_acc_draft_inst_v1', '');
+  const [newAccType, setNewAccType] = usePersistedState<AccountType>('sf_acc_draft_type_v1', 'checking');
+  const [newAccBalance, setNewAccBalance] = usePersistedState<string>('sf_acc_draft_bal_v1', '');
 
-  // Formulário de Cartão (criar / editar)
-  const [editingCardId, setEditingCardId] = useState<string | null>(null);
-  const [cardFormOpen, setCardFormOpen] = useState(false);
-  const [newCardName, setNewCardName] = useState('');
-  const [newCardIssuer, setNewCardIssuer] = useState('');
-  const [newCardLast4, setNewCardLast4] = useState('');
-  const [newCardLimit, setNewCardLimit] = useState('');
-  const [newCardClosing, setNewCardClosing] = useState(20);
-  const [newCardDue, setNewCardDue] = useState(28);
+  // Formulário de Cartão (criar / editar) com rascunho persistido
+  const [editingCardId, setEditingCardId] = usePersistedState<string | null>('sf_edit_card_id_v1', null);
+  const [cardFormOpen, setCardFormOpen] = usePersistedState<boolean>('sf_card_form_open_v1', false);
+  const [newCardName, setNewCardName] = usePersistedState<string>('sf_card_draft_name_v1', '');
+  const [newCardIssuer, setNewCardIssuer] = usePersistedState<string>('sf_card_draft_issuer_v1', '');
+  const [newCardLast4, setNewCardLast4] = usePersistedState<string>('sf_card_draft_last4_v1', '');
+  const [newCardLimit, setNewCardLimit] = usePersistedState<string>('sf_card_draft_limit_v1', '');
+  const [newCardClosing, setNewCardClosing] = usePersistedState<number>('sf_card_draft_closing_v1', 20);
+  const [newCardDue, setNewCardDue] = usePersistedState<number>('sf_card_draft_due_v1', 28);
 
-  // Formulário de Recorrência (criar / editar)
-  const [editingRecId, setEditingRecId] = useState<string | null>(null);
-  const [recFormOpen, setRecFormOpen] = useState(false);
-  const [newRecTitle, setNewRecTitle] = useState('');
-  const [newRecCategory, setNewRecCategory] = useState('Contas Fixas');
-  const [newRecAmount, setNewRecAmount] = useState('');
-  const [newRecType, setNewRecType] = useState<'expense' | 'income'>('expense');
-  const [newRecFreq, setNewRecFreq] = useState<RecurrenceFrequency>('monthly');
-  const [newRecDay, setNewRecDay] = useState(10);
-  const [newRecImportant, setNewRecImportant] = useState(true);
+  // Formulário de Recorrência (criar / editar) com rascunho persistido
+  const [editingRecId, setEditingRecId] = usePersistedState<string | null>('sf_edit_rec_id_v1', null);
+  const [recFormOpen, setRecFormOpen] = usePersistedState<boolean>('sf_rec_form_open_v1', false);
+  const [newRecTitle, setNewRecTitle] = usePersistedState<string>('sf_rec_draft_title_v1', '');
+  const [newRecCategory, setNewRecCategory] = usePersistedState<string>('sf_rec_draft_cat_v1', 'Contas Fixas');
+  const [newRecAmount, setNewRecAmount] = usePersistedState<string>('sf_rec_draft_amount_v1', '');
+  const [newRecType, setNewRecType] = usePersistedState<'expense' | 'income'>('sf_rec_draft_type_v1', 'expense');
+  const [newRecFreq, setNewRecFreq] = usePersistedState<RecurrenceFrequency>('sf_rec_draft_freq_v1', 'monthly');
+  const [newRecDay, setNewRecDay] = usePersistedState<number>('sf_rec_draft_day_v1', 10);
+  const [newRecImportant, setNewRecImportant] = usePersistedState<boolean>('sf_rec_draft_imp_v1', true);
 
   // Google Calendar Bridge State
   const [calStatus, setCalStatus] = useState<CalendarStatusResponse | null>(null);
@@ -1049,6 +1056,8 @@ export function App() {
               <CollapsiblePanel
                 title="Próximos Vencimentos"
                 subtitle="Contas importantes com lembrete rápido"
+                indexLabel="01/"
+                storageKey="sf_panel_overview_upcoming_v1"
                 defaultOpen={true}
                 summary={<span className="tag tag-amber">{importantPendingTxs.length} pendentes</span>}
                 headerAction={
@@ -1061,8 +1070,8 @@ export function App() {
                   <p className="section-desc">Tudo em dia! Nenhuma conta pendente.</p>
                 ) : (
                   <div className="list-stack">
-                    {importantPendingTxs.slice(0, 5).map((tx) => (
-                      <div key={tx.id} className="list-row">
+                    {importantPendingTxs.slice(0, 5).map((tx, idx) => (
+                      <div key={tx.id} className="list-row stagger-item" style={{ animationDelay: `${idx * 55}ms` }}>
                         <div className="list-row-main">
                           <div className="list-row-title">{tx.description}</div>
                           <div className="list-row-sub">
@@ -1073,7 +1082,7 @@ export function App() {
                         </div>
                         <div className="list-row-right">
                           <span className="mono text-terracotta" style={{ fontWeight: 600 }}>
-                            {formatCentsBRL(tx.amountCents)}
+                            <AnimatedCurrency cents={tx.amountCents} mode="count" durationMs={750} />
                           </span>
                           {calStatus?.connected ? (
                             <button
@@ -1125,10 +1134,12 @@ export function App() {
               <CollapsiblePanel
                 title="Fluxo de Caixa (6 meses)"
                 subtitle="Compare entradas e saídas em barras ou curvas"
+                indexLabel="02/"
+                storageKey="sf_panel_overview_cashflow_v1"
                 defaultOpen={true}
                 summary={
                   <span className={`mono ${monthResultCents >= 0 ? 'text-emerald' : 'text-terracotta'}`} style={{ fontWeight: 700, fontSize: 13 }}>
-                    {formatCentsBRL(monthResultCents, { showSign: true })}
+                    <AnimatedCurrency cents={monthResultCents} mode="slide" showSign />
                   </span>
                 }
               >
@@ -1140,10 +1151,12 @@ export function App() {
               <CollapsiblePanel
                 title={`Gastos por Categoria (${currentYm})`}
                 subtitle="Visualize a distribuição em pizza ou barras"
+                indexLabel="03/"
+                storageKey="sf_panel_overview_categories_v1"
                 defaultOpen={true}
                 summary={
                   <span className="mono text-terracotta" style={{ fontWeight: 700, fontSize: 13 }}>
-                    {formatCentsBRL(monthExpenseCents)}
+                    <AnimatedCurrency cents={monthExpenseCents} mode="count" durationMs={750} />
                   </span>
                 }
               >
@@ -1157,17 +1170,17 @@ export function App() {
         {activeTab === 'accounts' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             <div className="grid-3">
-              {state.accounts.map((acc) => {
+              {state.accounts.map((acc, idx) => {
                 const bal = accountBalances.get(acc.id) ?? acc.initialBalanceCents;
                 return (
-                  <div key={acc.id} className="surface">
+                  <div key={acc.id} className="surface stagger-item" style={{ animationDelay: `${idx * 70}ms` }}>
                     <div className="kpi-label">
                       <span>{acc.institution}</span>
                       <span className="tag">{ACCOUNT_TYPE_LABELS[acc.type]}</span>
                     </div>
                     <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 8 }}>{acc.name}</div>
                     <div className={`kpi-value mono ${bal >= 0 ? 'text-emerald' : 'text-terracotta'}`}>
-                      {formatCentsBRL(bal)}
+                      <AnimatedCurrency cents={bal} mode="count" />
                     </div>
                     <div className="kpi-meta">
                       Saldo inicial: <span className="mono">{formatCentsBRL(acc.initialBalanceCents)}</span>
@@ -1197,6 +1210,7 @@ export function App() {
             <CollapsiblePanel
               title={editingAccountId ? 'Editar Conta' : 'Adicionar Nova Conta'}
               subtitle="Cadastre ou atualize conta corrente, reserva, dinheiro ou investimento"
+              indexLabel="01/"
               open={accFormOpen}
               onToggle={(next) => {
                 setAccFormOpen(next);
@@ -1276,7 +1290,7 @@ export function App() {
         {activeTab === 'cards' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             <div className="grid-equal">
-              {state.cards.map((card) => {
+              {state.cards.map((card, idx) => {
                 const usedCents = computeCardUsedLimitCents(card.id, state.transactions);
                 const availCents = Math.max(0, subtractCents(card.limitCents, usedCents));
                 const usagePct = card.limitCents > 0 ? Math.min(100, Math.round((usedCents / card.limitCents) * 100)) : 0;
@@ -1288,7 +1302,11 @@ export function App() {
                 );
 
                 return (
-                  <div key={card.id} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div
+                    key={card.id}
+                    className="stagger-item"
+                    style={{ display: 'flex', flexDirection: 'column', gap: 12, animationDelay: `${idx * 80}ms` }}
+                  >
                     <div className="credit-card-tile" style={{ background: card.accentColor }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
                         <div>
@@ -1325,10 +1343,12 @@ export function App() {
                       <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 6 }}>
                           <span>Limite usado ({usagePct}%)</span>
-                          <span className="mono">Disponível: {formatCentsBRL(availCents)}</span>
+                          <span className="mono">
+                            Disponível: <AnimatedCurrency cents={availCents} mode="count" durationMs={850} />
+                          </span>
                         </div>
                         <div className="progress-track">
-                          <div className="progress-fill" style={{ width: `${usagePct}%` }} />
+                          <div className="progress-fill progress-bar-anim" style={{ width: `${usagePct}%` }} />
                         </div>
                       </div>
 
@@ -1342,10 +1362,11 @@ export function App() {
                     <CollapsiblePanel
                       title={`Fatura ${stmtPeriod}`}
                       subtitle={`Vencimento ${stmtDueDate} • ${stmtTxs.length} compra(s)`}
+                      storageKey={`sf_panel_card_${card.id}_v1`}
                       defaultOpen={false}
                       summary={
                         <span className="mono" style={{ fontWeight: 700, fontSize: 15 }}>
-                          {formatCentsBRL(stmtCents)}
+                          <AnimatedCurrency cents={stmtCents} mode="slide" />
                         </span>
                       }
                     >
@@ -1699,7 +1720,7 @@ export function App() {
                           className={`mono ${rule.type === 'income' ? 'text-emerald' : 'text-terracotta'}`}
                           style={{ fontWeight: 700 }}
                         >
-                          {formatCentsBRL(rule.amountCents)}
+                          <AnimatedCurrency cents={rule.amountCents} mode="count" durationMs={750} />
                         </span>
                         {calStatus?.connected ? (
                           <button

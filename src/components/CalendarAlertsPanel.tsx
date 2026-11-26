@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useMemo, type FormEvent } from 'react';
 import {
   Bell,
   Calendar,
@@ -20,6 +20,8 @@ import {
   type CreateAlertPayload,
 } from '../services/calendarApi';
 import { CollapsiblePanel } from './CollapsiblePanel';
+import { usePersistedState } from '../hooks/usePersistedState';
+import { AnimatedCurrency } from './AnimatedCurrency';
 
 export interface SelectedAlertRequest {
   tx: Transaction;
@@ -66,16 +68,21 @@ export function CalendarAlertsPanel({
   onCreateAlert,
   onBatchSyncAlerts,
 }: CalendarAlertsPanelProps) {
-  const [summary, setSummary] = useState('');
-  const [date, setDate] = useState(getTodayIsoDate());
-  const [description, setDescription] = useState('');
-  const [recurringFreq, setRecurringFreq] = useState<'NONE' | 'MONTHLY' | 'WEEKLY' | 'YEARLY'>('NONE');
-  const [allDay, setAllDay] = useState(true);
+  const [summary, setSummary] = usePersistedState('sf_cal_draft_summary_v1', '');
+  const [date, setDate] = usePersistedState('sf_cal_draft_date_v1', getTodayIsoDate());
+  const [description, setDescription] = usePersistedState('sf_cal_draft_desc_v1', '');
+  const [recurringFreq, setRecurringFreq] = usePersistedState<'NONE' | 'MONTHLY' | 'WEEKLY' | 'YEARLY'>(
+    'sf_cal_draft_freq_v1',
+    'NONE',
+  );
+  const [allDay, setAllDay] = usePersistedState('sf_cal_draft_allday_v1', true);
 
-  // Estado da lista de últimos lançamentos sem alerta no calendário
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [defaultLeadDays, setDefaultLeadDays] = useState<number>(1);
-  const [leadDaysByTxId, setLeadDaysByTxId] = useState<Record<string, number>>({});
+  // Estado persistido da lista de últimos lançamentos sem alerta no calendário
+  const [selectedIdList, setSelectedIdList] = usePersistedState<string[]>('sf_cal_selected_ids_v1', []);
+  const [defaultLeadDays, setDefaultLeadDays] = usePersistedState<number>('sf_cal_default_lead_v1', 1);
+  const [leadDaysByTxId, setLeadDaysByTxId] = usePersistedState<Record<string, number>>('sf_cal_lead_map_v1', {});
+
+  const selectedIds = useMemo(() => new Set(selectedIdList), [selectedIdList]);
 
   // Filtra os últimos lançamentos que ainda não possuem evento sincronizado no Google Calendar
   const unsyncedRecentTxs = useMemo(() => {
@@ -111,22 +118,16 @@ export function CalendarAlertsPanel({
   }
 
   function toggleSelect(txId: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(txId)) {
-        next.delete(txId);
-      } else {
-        next.add(txId);
-      }
-      return next;
-    });
+    setSelectedIdList((prev) =>
+      prev.includes(txId) ? prev.filter((id) => id !== txId) : [...prev, txId],
+    );
   }
 
   function toggleSelectAll() {
     if (allSelected) {
-      setSelectedIds(new Set());
+      setSelectedIdList([]);
     } else {
-      setSelectedIds(new Set(unsyncedRecentTxs.map((t) => t.id)));
+      setSelectedIdList(unsyncedRecentTxs.map((t) => t.id));
     }
   }
 
@@ -160,9 +161,8 @@ export function CalendarAlertsPanel({
 
     if (status?.connected) {
       await onBatchSyncAlerts(items);
-      setSelectedIds(new Set());
+      setSelectedIdList([]);
     } else {
-      // Fallback para GitHub Pages / modo sem bridge local: gera pacote .ics pronto para importar
       downloadBatchIcsFallback(
         items.map(({ tx, leadDays, alertDate }) => ({
           uid: `tx-${tx.id}-${alertDate}`,
@@ -176,7 +176,7 @@ export function CalendarAlertsPanel({
         })),
       );
       await onBatchSyncAlerts(items);
-      setSelectedIds(new Set());
+      setSelectedIdList([]);
     }
   }
 
@@ -428,6 +428,8 @@ export function CalendarAlertsPanel({
         <CollapsiblePanel
           title="Criar Alerta sob Demanda"
           subtitle="Agende um lembrete único ou recorrente manualmente"
+          indexLabel="01/"
+          storageKey="sf_panel_cal_manual_v1"
           defaultOpen={false}
           summary={<span className="tag">Manual</span>}
         >
@@ -534,6 +536,8 @@ export function CalendarAlertsPanel({
         <CollapsiblePanel
           title="Contas Importantes Pendentes"
           subtitle="Atalho rápido para contas críticas ainda não quitadas"
+          indexLabel="02/"
+          storageKey="sf_panel_cal_important_v1"
           defaultOpen={false}
           summary={<span className="tag tag-amber">{importantPendingTxs.length} pendentes</span>}
         >
@@ -560,7 +564,7 @@ export function CalendarAlertsPanel({
                   </div>
                   <div className="list-row-right">
                     <span className="mono text-terracotta" style={{ fontWeight: 600 }}>
-                      {formatCentsBRL(tx.amountCents)}
+                      <AnimatedCurrency cents={tx.amountCents} mode="count" durationMs={700} />
                     </span>
                     {tx.calendarEventLink ? (
                       <a
@@ -619,6 +623,8 @@ export function CalendarAlertsPanel({
         <CollapsiblePanel
           title="Eventos no Google Calendar"
           subtitle="Leitura direta do calendário financeiro (próximos 120 dias)"
+          indexLabel="03/"
+          storageKey="sf_panel_cal_events_v1"
           defaultOpen={events.length > 0}
           summary={
             <span className="tag tag-navy">

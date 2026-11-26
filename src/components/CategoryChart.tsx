@@ -1,6 +1,7 @@
-import { useState } from 'react';
 import { BarChart3, PieChart } from 'lucide-react';
 import { formatCentsBRL } from '../domain/money';
+import { usePersistedState } from '../hooks/usePersistedState';
+import { AnimatedCurrency } from './AnimatedCurrency';
 
 interface CategoryItem {
   category: string;
@@ -12,7 +13,6 @@ interface CategoryChartProps {
   totalExpenseCents: number;
 }
 
-// Usa exclusivamente a paleta já existente no sistema (sem alterar cores do tema)
 const SLICE_COLORS = [
   '#141619',
   '#C84B31',
@@ -24,7 +24,7 @@ const SLICE_COLORS = [
 ];
 
 export function CategoryChart({ items, totalExpenseCents }: CategoryChartProps) {
-  const [mode, setMode] = useState<'pie' | 'bars'>('pie');
+  const [mode, setMode] = usePersistedState<'pie' | 'bars'>('superfinance_category_mode_v1', 'pie');
 
   if (items.length === 0) {
     return <p className="section-desc">Nenhuma despesa registrada neste mês.</p>;
@@ -74,7 +74,7 @@ export function CategoryChart({ items, totalExpenseCents }: CategoryChartProps) 
       </div>
 
       {mode === 'pie' ? (
-        <div className="pie-layout anim-fade-in">
+        <div key={`pie-${totalExpenseCents}`} className="pie-layout anim-fade-in">
           <div style={{ display: 'grid', placeItems: 'center' }}>
             <svg
               viewBox="0 0 180 180"
@@ -133,8 +133,12 @@ export function CategoryChart({ items, totalExpenseCents }: CategoryChartProps) 
           </div>
 
           <div className="list-stack" style={{ flex: 1 }}>
-            {slices.map((slice) => (
-              <div key={slice.category} className="list-row" style={{ padding: '9px 0' }}>
+            {slices.map((slice, idx) => (
+              <div
+                key={slice.category}
+                className="list-row stagger-item"
+                style={{ padding: '9px 0', animationDelay: `${idx * 60}ms` }}
+              >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span
                     style={{
@@ -148,7 +152,7 @@ export function CategoryChart({ items, totalExpenseCents }: CategoryChartProps) 
                   <span style={{ fontWeight: 600, fontSize: 13.5 }}>{slice.category}</span>
                 </div>
                 <div className="mono" style={{ fontSize: 13, fontWeight: 600 }}>
-                  {formatCentsBRL(slice.cents)}{' '}
+                  <AnimatedCurrency cents={slice.cents} mode="count" durationMs={750} />{' '}
                   <span style={{ color: 'var(--ink-muted)' }}>({slice.pct}%)</span>
                 </div>
               </div>
@@ -156,17 +160,25 @@ export function CategoryChart({ items, totalExpenseCents }: CategoryChartProps) 
           </div>
         </div>
       ) : (
-        <div className="grid-3 anim-fade-in">
-          {slices.map((item) => (
-            <div key={item.category} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div key={`bars-${totalExpenseCents}`} className="grid-3 anim-fade-in">
+          {slices.map((item, idx) => (
+            <div
+              key={item.category}
+              className="stagger-item"
+              style={{ display: 'flex', flexDirection: 'column', gap: 6, animationDelay: `${idx * 70}ms` }}
+            >
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13.5 }}>
                 <span style={{ fontWeight: 600 }}>{item.category}</span>
                 <span className="mono" style={{ fontWeight: 600 }}>
-                  {formatCentsBRL(item.cents)} <span style={{ color: 'var(--ink-muted)' }}>({item.pct}%)</span>
+                  <AnimatedCurrency cents={item.cents} mode="count" durationMs={750} />{' '}
+                  <span style={{ color: 'var(--ink-muted)' }}>({item.pct}%)</span>
                 </span>
               </div>
               <div className="progress-track-light">
-                <div className="progress-fill-dark" style={{ width: `${Math.max(4, item.pct)}%` }} />
+                <div
+                  className="progress-fill-dark progress-bar-anim"
+                  style={{ width: `${Math.max(4, item.pct)}%`, animationDelay: `${idx * 80}ms` }}
+                />
               </div>
             </div>
           ))}

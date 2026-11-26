@@ -6,31 +6,60 @@ interface AnimatedCurrencyProps {
   mode?: 'count' | 'slide';
   showSign?: boolean;
   className?: string;
+  durationMs?: number;
+  animateOnMount?: boolean;
 }
 
 /**
- * Exibe valores monetários em centavos inteiros com animação fluida:
- * - mode="count": contagem numérica suave via requestAnimationFrame (~340ms)
- * - mode="slide": entrada/saída vertical (slide-in/out com leve bounce)
+ * Exibe valores monetários em centavos inteiros com animação fluida e visível:
+ * - mode="count": contagem numérica suave via requestAnimationFrame (~950ms easeOutQuart)
+ * - mode="slide": entrada/saída vertical (slide-in/out com bounce suave ~520ms)
  */
 export function AnimatedCurrency({
   cents,
   mode = 'count',
   showSign = false,
   className = '',
+  durationMs = 950,
+  animateOnMount = true,
 }: AnimatedCurrencyProps) {
-  const [displayCents, setDisplayCents] = useState(cents);
+  const [displayCents, setDisplayCents] = useState(() => (animateOnMount && mode === 'count' ? 0 : cents));
   const [slideKey, setSlideKey] = useState(0);
   const [slideDir, setSlideDir] = useState<'up' | 'down'>('up');
-  const prevCentsRef = useRef(cents);
+  const prevCentsRef = useRef<number>(animateOnMount && mode === 'count' ? 0 : cents);
+  const mountedRef = useRef(false);
 
   useEffect(() => {
-    const from = prevCentsRef.current;
-    if (from === cents) return;
-
     const prefersReduced =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+    const from = prevCentsRef.current;
+
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      if (prefersReduced) {
+        prevCentsRef.current = cents;
+        setDisplayCents(cents);
+        return;
+      }
+      if (mode === 'slide') {
+        if (animateOnMount) {
+          setSlideDir(cents >= 0 ? 'up' : 'down');
+          setSlideKey(1);
+        }
+        setDisplayCents(cents);
+        prevCentsRef.current = cents;
+        return;
+      }
+      if (!animateOnMount) {
+        prevCentsRef.current = cents;
+        setDisplayCents(cents);
+        return;
+      }
+    } else if (from === cents) {
+      return;
+    }
 
     if (prefersReduced) {
       prevCentsRef.current = cents;
@@ -46,17 +75,16 @@ export function AnimatedCurrency({
       return;
     }
 
-    // mode === 'count' (interpolação em centavos inteiros)
-    const duration = 340;
+    const startVal = from;
     const startTime = performance.now();
     let rafId = 0;
 
     const tick = (now: number) => {
       const elapsed = now - startTime;
-      const t = Math.min(1, elapsed / duration);
-      // easeOutBack sutil para sensação viva sem exagerar nos números
-      const eased = 1 - Math.pow(1 - t, 3);
-      const current = Math.round(from + (cents - from) * eased);
+      const t = Math.min(1, elapsed / durationMs);
+      // easeOutQuart: começo rápido e desaceleração longa e visível
+      const eased = 1 - Math.pow(1 - t, 4);
+      const current = Math.round(startVal + (cents - startVal) * eased);
       setDisplayCents(current);
       if (t < 1) {
         rafId = requestAnimationFrame(tick);
@@ -71,7 +99,7 @@ export function AnimatedCurrency({
       cancelAnimationFrame(rafId);
       prevCentsRef.current = cents;
     };
-  }, [cents, mode]);
+  }, [cents, mode, durationMs, animateOnMount]);
 
   if (mode === 'slide') {
     return (

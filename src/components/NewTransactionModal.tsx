@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { X } from 'lucide-react';
 import { createCardInstallmentTransactions, getTodayIsoDate } from '../domain/ledger';
 import { formatCentsBRL, parseBRLToCents, splitInstallmentsCents } from '../domain/money';
@@ -10,6 +10,33 @@ interface NewTransactionModalProps {
   editingTransaction?: Transaction | null;
   onClose: () => void;
   onSave: (transactions: Transaction[], scheduleCalendarAlert: boolean, isEdit?: boolean) => void;
+}
+
+const DRAFT_KEY = 'sf_new_tx_draft_v1';
+
+interface TxDraft {
+  type: TransactionType;
+  description: string;
+  amountInput: string;
+  category: string;
+  competenceDate: string;
+  status: TransactionStatus;
+  paymentSource: 'account' | 'card';
+  accountId: string;
+  toAccountId: string;
+  creditCardId: string;
+  installments: number;
+  important: boolean;
+  scheduleAlert: boolean;
+}
+
+function loadDraft(): Partial<TxDraft> {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    return raw ? (JSON.parse(raw) as Partial<TxDraft>) : {};
+  } catch {
+    return {};
+  }
 }
 
 const CATEGORIES = [
@@ -43,30 +70,83 @@ export function NewTransactionModal({
   onSave,
 }: NewTransactionModalProps) {
   const isEditing = Boolean(editingTransaction);
-  const [type, setType] = useState<TransactionType>(editingTransaction?.type ?? 'expense');
-  const [description, setDescription] = useState(editingTransaction?.description ?? '');
+  const draft = isEditing ? {} : loadDraft();
+
+  const [type, setType] = useState<TransactionType>(editingTransaction?.type ?? draft.type ?? 'expense');
+  const [description, setDescription] = useState(editingTransaction?.description ?? draft.description ?? '');
   const [amountInput, setAmountInput] = useState(
-    editingTransaction ? centsToInput(editingTransaction.amountCents) : '',
+    editingTransaction ? centsToInput(editingTransaction.amountCents) : draft.amountInput ?? '',
   );
-  const [category, setCategory] = useState(editingTransaction?.category ?? 'Contas Fixas');
+  const [category, setCategory] = useState(editingTransaction?.category ?? draft.category ?? 'Contas Fixas');
   const [competenceDate, setCompetenceDate] = useState(
-    editingTransaction?.competenceDate ?? getTodayIsoDate(),
+    editingTransaction?.competenceDate ?? draft.competenceDate ?? getTodayIsoDate(),
   );
-  const [status, setStatus] = useState<TransactionStatus>(editingTransaction?.status ?? 'paid');
+  const [status, setStatus] = useState<TransactionStatus>(editingTransaction?.status ?? draft.status ?? 'paid');
   const [paymentSource, setPaymentSource] = useState<'account' | 'card'>(
-    editingTransaction?.creditCardId ? 'card' : 'account',
+    editingTransaction ? (editingTransaction.creditCardId ? 'card' : 'account') : (draft.paymentSource ?? 'account'),
   );
-  const [accountId, setAccountId] = useState(editingTransaction?.accountId ?? accounts[0]?.id ?? '');
+  const [accountId, setAccountId] = useState(
+    editingTransaction?.accountId ?? draft.accountId ?? accounts[0]?.id ?? '',
+  );
   const [toAccountId, setToAccountId] = useState(
-    editingTransaction?.toAccountId ?? accounts[1]?.id ?? accounts[0]?.id ?? '',
+    editingTransaction?.toAccountId ?? draft.toAccountId ?? accounts[1]?.id ?? accounts[0]?.id ?? '',
   );
   const [creditCardId, setCreditCardId] = useState(
-    editingTransaction?.creditCardId ?? cards[0]?.id ?? '',
+    editingTransaction?.creditCardId ?? draft.creditCardId ?? cards[0]?.id ?? '',
   );
-  const [installments, setInstallments] = useState(1);
-  const [important, setImportant] = useState(Boolean(editingTransaction?.important));
-  const [scheduleAlert, setScheduleAlert] = useState(false);
+  const [installments, setInstallments] = useState(draft.installments ?? 1);
+  const [important, setImportant] = useState(
+    editingTransaction ? Boolean(editingTransaction.important) : Boolean(draft.important),
+  );
+  const [scheduleAlert, setScheduleAlert] = useState(Boolean(draft.scheduleAlert));
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (isEditing) return;
+    try {
+      const nextDraft: TxDraft = {
+        type,
+        description,
+        amountInput,
+        category,
+        competenceDate,
+        status,
+        paymentSource,
+        accountId,
+        toAccountId,
+        creditCardId,
+        installments,
+        important,
+        scheduleAlert,
+      };
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(nextDraft));
+    } catch {
+      // ignore
+    }
+  }, [
+    isEditing,
+    type,
+    description,
+    amountInput,
+    category,
+    competenceDate,
+    status,
+    paymentSource,
+    accountId,
+    toAccountId,
+    creditCardId,
+    installments,
+    important,
+    scheduleAlert,
+  ]);
+
+  function clearDraft() {
+    try {
+      localStorage.removeItem(DRAFT_KEY);
+    } catch {
+      // ignore
+    }
+  }
 
   const parsedCents = parseBRLToCents(amountInput);
   const previewSlices =
@@ -128,6 +208,7 @@ export function NewTransactionModal({
         card,
         important,
       });
+      clearDraft();
       onSave(generated, scheduleAlert, false);
       return;
     }
@@ -146,6 +227,7 @@ export function NewTransactionModal({
       createdAtUtc: nowUtc,
     };
 
+    clearDraft();
     onSave([tx], scheduleAlert, false);
   }
 

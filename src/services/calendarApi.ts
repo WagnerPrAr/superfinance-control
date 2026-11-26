@@ -68,6 +68,23 @@ export async function createCalendarAlert(payload: CreateAlertPayload): Promise<
   return data;
 }
 
+export function buildGoogleCalendarWebUrl(params: {
+  summary: string;
+  description: string;
+  date: string; // YYYY-MM-DD
+}): string {
+  const start = params.date.replace(/-/g, '');
+  const [y, m, d] = params.date.split('-').map(Number);
+  const nextDt = new Date(Date.UTC(y, m - 1, d + 1));
+  const end = `${nextDt.getUTCFullYear()}${String(nextDt.getUTCMonth() + 1).padStart(2, '0')}${String(nextDt.getUTCDate()).padStart(2, '0')}`;
+  const url = new URL('https://calendar.google.com/calendar/render');
+  url.searchParams.set('action', 'TEMPLATE');
+  url.searchParams.set('text', params.summary);
+  url.searchParams.set('dates', `${start}/${end}`);
+  url.searchParams.set('details', params.description);
+  return url.toString();
+}
+
 export function downloadIcsFallback(params: {
   uid: string;
   summary: string;

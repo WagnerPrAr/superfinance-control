@@ -4,6 +4,7 @@ import { getTodayIsoDate } from '../domain/ledger';
 import { formatCentsBRL } from '../domain/money';
 import type { CalendarEventItem, Transaction } from '../domain/types';
 import {
+  buildGoogleCalendarWebUrl,
   downloadIcsFallback,
   type CalendarStatusResponse,
   type CreateAlertPayload,
@@ -160,10 +161,26 @@ export function CalendarAlertsPanel({
             )}
 
             <div style={{ display: 'flex', gap: 10, marginTop: 4, flexWrap: 'wrap' }}>
-              <button type="submit" className="btn btn-navy" disabled={creatingAlert || !status?.connected}>
-                <Bell size={15} />
-                {creatingAlert ? 'Agendando...' : 'Enviar para Google Calendar'}
-              </button>
+              {status?.connected ? (
+                <button type="submit" className="btn btn-navy" disabled={creatingAlert}>
+                  <Bell size={15} />
+                  {creatingAlert ? 'Agendando...' : 'Enviar para Google Calendar'}
+                </button>
+              ) : (
+                <a
+                  className="btn btn-navy"
+                  href={buildGoogleCalendarWebUrl({
+                    summary: summary.trim() || '[SuperFinance] Lembrete Financeiro',
+                    description: description.trim() || 'Alerta financeiro criado pelo SuperFinance.',
+                    date,
+                  })}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <ExternalLink size={15} />
+                  Agendar no Google Calendar (Web)
+                </a>
+              )}
               <button
                 type="button"
                 className="btn"
@@ -228,11 +245,11 @@ export function CalendarAlertsPanel({
                         <ExternalLink size={13} />
                         Ver
                       </a>
-                    ) : (
+                    ) : status?.connected ? (
                       <button
                         type="button"
                         className="btn btn-sm btn-navy"
-                        disabled={creatingAlert || !status?.connected}
+                        disabled={creatingAlert}
                         onClick={() =>
                           onCreateAlert(
                             {
@@ -249,6 +266,20 @@ export function CalendarAlertsPanel({
                         <Bell size={13} />
                         Alertar
                       </button>
+                    ) : (
+                      <a
+                        className="btn btn-sm btn-navy"
+                        href={buildGoogleCalendarWebUrl({
+                          summary: `[SuperFinance] Pagar ${tx.description} (${formatCentsBRL(tx.amountCents)})`,
+                          date: tx.competenceDate,
+                          description: `Categoria: ${tx.category}\nValor exato: ${formatCentsBRL(tx.amountCents)}\nStatus no SuperFinance: Pendente`,
+                        })}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <ExternalLink size={13} />
+                        Calendar
+                      </a>
                     )}
                   </div>
                 </div>

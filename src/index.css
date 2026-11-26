@@ -1001,11 +1001,33 @@ textarea {
   }
 }
 
-/* Micro-animações sutis e fluidas (sem alterar cores/estilos) */
+/* Micro-animações com bounce sutil, feedback de cor do mês e gestos mobile */
+.app-shell {
+  transition: background-color 0.5s ease;
+}
+
+.app-shell[data-month-mood='good'] {
+  background: linear-gradient(180deg, rgba(15, 110, 86, 0.055) 0%, rgba(247, 246, 242, 0) 340px);
+}
+
+.app-shell[data-month-mood='bad'] {
+  background: linear-gradient(180deg, rgba(200, 75, 49, 0.06) 0%, rgba(247, 246, 242, 0) 340px);
+}
+
+.surface-mood-good {
+  border-color: rgba(15, 110, 86, 0.22);
+  background: linear-gradient(180deg, rgba(15, 110, 86, 0.04) 0%, var(--bg-surface) 100%);
+}
+
+.surface-mood-bad {
+  border-color: rgba(200, 75, 49, 0.24);
+  background: linear-gradient(180deg, rgba(200, 75, 49, 0.045) 0%, var(--bg-surface) 100%);
+}
+
 @keyframes fadeSlideUp {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -1022,38 +1044,166 @@ textarea {
   }
 }
 
-@keyframes modalEnter {
-  from {
+@keyframes modalBounceIn {
+  0% {
     opacity: 0;
-    transform: translateY(14px) scale(0.985);
+    transform: translateY(20px) scale(0.96);
   }
-  to {
+  70% {
+    opacity: 1;
+    transform: translateY(-3px) scale(1.01);
+  }
+  100% {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
 }
 
-@keyframes toastEnter {
-  from {
+@keyframes toastBounceIn {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.95);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(-3px) scale(1.01);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes numSlideUp {
+  0% {
     opacity: 0;
     transform: translateY(12px);
   }
-  to {
+  70% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+  100% {
     opacity: 1;
     transform: translateY(0);
   }
 }
 
+@keyframes numSlideDown {
+  0% {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes barGrowBounce {
+  0% {
+    transform: scaleY(0);
+  }
+  75% {
+    transform: scaleY(1.04);
+  }
+  100% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes curveDraw {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes dotPopBounce {
+  0% {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  75% {
+    opacity: 1;
+    transform: scale(1.22);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pieReveal {
+  0% {
+    opacity: 0;
+    transform: rotate(-125deg) scale(0.9);
+  }
+  75% {
+    opacity: 1;
+    transform: rotate(-88deg) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: rotate(-90deg) scale(1);
+  }
+}
+
+@keyframes paidPop {
+  0% {
+    transform: scale(0.9);
+  }
+  55% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes paidRowFlash {
+  0% {
+    background-color: rgba(15, 110, 86, 0.14);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.num-slide-wrap {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+
+.num-slide-inner {
+  display: inline-block;
+}
+
+.num-slide-up {
+  animation: numSlideUp 0.34s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.num-slide-down {
+  animation: numSlideDown 0.34s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
 .anim-tab-enter {
-  animation: fadeSlideUp 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: fadeSlideUp 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .anim-fade-in {
-  animation: fadeIn 0.22s ease both;
+  animation: fadeIn 0.24s ease both;
 }
 
 .collapsible-body {
-  animation: fadeSlideUp 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: fadeSlideUp 0.26s cubic-bezier(0.34, 1.35, 0.64, 1) both;
 }
 
 .modal-backdrop {
@@ -1061,19 +1211,122 @@ textarea {
 }
 
 .modal-card {
-  animation: modalEnter 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: modalBounceIn 0.32s cubic-bezier(0.34, 1.45, 0.64, 1) both;
 }
 
 .toast {
-  animation: toastEnter 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: toastBounceIn 0.34s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.96);
 }
 
 .chart-bar-anim {
-  transition: opacity 0.15s ease, transform 0.2s ease;
+  transform-box: fill-box;
+  transform-origin: bottom center;
+  animation: barGrowBounce 0.48s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+  transition: opacity 0.15s ease;
 }
 
 .chart-bar-anim:hover {
-  opacity: 0.85;
+  opacity: 0.84;
+}
+
+.chart-curve-draw {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  animation: curveDraw 0.65s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.chart-area-fade {
+  animation: fadeIn 0.55s ease 0.15s both;
+}
+
+.chart-dot-pop {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: dotPopBounce 0.36s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.chart-pie-reveal {
+  transform-origin: 90px 90px;
+  animation: pieReveal 0.52s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+
+.paid-pop {
+  animation: paidPop 0.34s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.paid-row-flash {
+  border-radius: var(--radius-sm);
+  animation: paidRowFlash 0.8s ease-out both;
+}
+
+/* Indicador deslizante com bounce na barra inferior mobile */
+.mobile-nav-pill {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: calc((100% - 12px) / 6);
+  height: 50px;
+  border-radius: var(--radius-sm);
+  background: var(--ink-primary);
+  transition: transform 0.36s cubic-bezier(0.34, 1.45, 0.64, 1);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.mobile-nav-btn {
+  z-index: 1;
+  transition: color 0.2s ease, transform 0.15s ease;
+}
+
+.mobile-nav-btn.active {
+  background: transparent;
+  color: #ffffff;
+}
+
+/* Swipeable Transaction Row */
+.swipe-row-shell {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.swipe-row-shell:last-child {
+  border-bottom: none;
+}
+
+.swipe-row-content {
+  position: relative;
+  z-index: 1;
+  background: var(--bg-surface);
+  border-bottom: none;
+}
+
+.swipe-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+}
+
+.swipe-hint-right {
+  justify-content: flex-start;
+  background: var(--accent-emerald-soft);
+  color: var(--accent-emerald);
+}
+
+.swipe-hint-left {
+  justify-content: flex-end;
+  background: var(--accent-navy-soft);
+  color: var(--accent-navy);
 }
 
 .card-actions-row {
@@ -1091,8 +1344,20 @@ textarea {
   .collapsible-body,
   .modal-backdrop,
   .modal-card,
-  .toast {
+  .toast,
+  .num-slide-up,
+  .num-slide-down,
+  .chart-bar-anim,
+  .chart-curve-draw,
+  .chart-area-fade,
+  .chart-dot-pop,
+  .chart-pie-reveal,
+  .paid-pop,
+  .paid-row-flash {
     animation: none !important;
+  }
+  .chart-curve-draw {
+    stroke-dashoffset: 0 !important;
   }
   * {
     transition-duration: 0.01ms !important;

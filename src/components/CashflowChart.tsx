@@ -194,10 +194,12 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
                 />
               ) : null,
             )}
-            <path d={incomeArea} fill="rgba(15, 110, 86, 0.1)" />
-            <path d={expenseArea} fill="rgba(200, 75, 49, 0.09)" />
+            <path d={incomeArea} className="chart-area-fade" fill="rgba(15, 110, 86, 0.1)" />
+            <path d={expenseArea} className="chart-area-fade" fill="rgba(200, 75, 49, 0.09)" />
             <path
               d={incomePath}
+              className="chart-curve-draw"
+              pathLength={100}
               fill="none"
               stroke="#0F6E56"
               strokeWidth="2.75"
@@ -205,14 +207,18 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
             />
             <path
               d={expensePath}
+              className="chart-curve-draw"
+              pathLength={100}
               fill="none"
               stroke="#C84B31"
               strokeWidth="2.75"
               strokeLinecap="round"
             />
-            {incomePoints.map((pt) => (
+            {incomePoints.map((pt, i) => (
               <circle
                 key={`inc-${pt.item.ym}`}
+                className="chart-dot-pop"
+                style={{ animationDelay: `${180 + i * 45}ms` }}
                 cx={pt.x}
                 cy={pt.y}
                 r={pt.item.isCurrent ? 5 : 3.8}
@@ -223,9 +229,11 @@ export function CashflowChart({ transactions, currentYearMonth }: CashflowChartP
                 <title>{`${pt.item.label} — Entradas: ${formatCentsBRL(pt.item.incomeCents)}`}</title>
               </circle>
             ))}
-            {expensePoints.map((pt) => (
+            {expensePoints.map((pt, i) => (
               <circle
                 key={`exp-${pt.item.ym}`}
+                className="chart-dot-pop"
+                style={{ animationDelay: `${220 + i * 45}ms` }}
                 cx={pt.x}
                 cy={pt.y}
                 r={pt.item.isCurrent ? 5 : 3.8}

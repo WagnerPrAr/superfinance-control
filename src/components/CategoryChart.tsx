@@ -90,10 +90,11 @@ export function CategoryChart({ items, totalExpenseCents }: CategoryChartProps) 
                 stroke="var(--bg-subtle)"
                 strokeWidth="24"
               />
-              <g transform="rotate(-90 90 90)">
+              <g className="chart-pie-reveal" transform="rotate(-90 90 90)">
                 {slices.map((slice) => (
                   <circle
                     key={slice.category}
+                    className="chart-slice-anim"
                     cx="90"
                     cy="90"
                     r={radius}

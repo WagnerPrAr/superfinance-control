@@ -50,8 +50,19 @@ import { CategoryChart } from './components/CategoryChart';
 import { NewTransactionModal } from './components/NewTransactionModal';
 import { CalendarAlertsPanel, type SelectedAlertRequest } from './components/CalendarAlertsPanel';
 import { CollapsiblePanel } from './components/CollapsiblePanel';
+import { AnimatedCurrency } from './components/AnimatedCurrency';
+import { SwipeableTransactionRow } from './components/SwipeableTransactionRow';
 
 type NavTab = 'overview' | 'accounts' | 'cards' | 'transactions' | 'recurrences' | 'calendar';
+
+const TAB_ORDER: readonly NavTab[] = [
+  'overview',
+  'accounts',
+  'cards',
+  'transactions',
+  'recurrences',
+  'calendar',
+];
 
 interface OverviewPrefs {
   showSecondaryKpis: boolean;
@@ -116,6 +127,7 @@ export function App() {
   const [currentYm, setCurrentYm] = useState<string>(getCurrentYearMonth);
   const [showNewTxModal, setShowNewTxModal] = useState(false);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+  const [justPaidId, setJustPaidId] = useState<string | null>(null);
 
   // Preferências de exibição escolhidas pelo usuário (limpeza visual / mobile)
   const [overviewPrefs, setOverviewPrefs] = useState<OverviewPrefs>(loadOverviewPrefs);
@@ -433,12 +445,20 @@ export function App() {
   }
 
   function handleToggleTxStatus(id: string) {
+    const target = state.transactions.find((t) => t.id === id);
+    const becomingPaid = target?.status !== 'paid';
     setState((prev) => ({
       ...prev,
       transactions: prev.transactions.map((tx) =>
         tx.id === id ? { ...tx, status: tx.status === 'paid' ? 'pending' : 'paid' } : tx,
       ),
     }));
+    if (becomingPaid) {
+      setJustPaidId(id);
+      setTimeout(() => {
+        setJustPaidId((curr) => (curr === id ? null : curr));
+      }, 850);
+    }
   }
 
   function handleDeleteTx(id: string, description: string) {
@@ -767,14 +787,18 @@ export function App() {
     },
   };
 
+  const monthMood: 'good' | 'bad' | 'neutral' =
+    monthResultCents > 0 ? 'good' : monthResultCents < 0 ? 'bad' : 'neutral';
+  const activeTabIdx = Math.max(0, TAB_ORDER.indexOf(activeTab));
+
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-month-mood={monthMood}>
       <aside className="sidebar" aria-label="Navegação principal">
         <div className="brand">
           <div className="brand-mark">SF</div>
           <div>
             <div className="brand-title">SuperFinance</div>
-            <div className="brand-sub">Ledger em Centavos</div>
+            <div className="brand-sub">Controle Financeiro</div>
           </div>
         </div>
 
@@ -857,7 +881,14 @@ export function App() {
       <main className="main-area">
         <header className="topbar">
           <div>
-            <h1 className="page-title">{pageMeta[activeTab].title}</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <h1 className="page-title">{pageMeta[activeTab].title}</h1>
+              {monthMood !== 'neutral' && (
+                <span className={`tag ${monthMood === 'good' ? 'tag-emerald' : 'tag-terracotta'}`}>
+                  {monthMood === 'good' ? 'Mês positivo' : 'Mês no vermelho'}
+                </span>
+              )}
+            </div>
             <p className="page-subtitle">{pageMeta[activeTab].subtitle}</p>
           </div>
           <div className="topbar-actions">
@@ -870,8 +901,10 @@ export function App() {
               >
                 ←
               </button>
-              <span className="mono" style={{ fontWeight: 600, fontSize: 13.5, padding: '0 4px' }}>
-                {currentYm}
+              <span className="num-slide-wrap" style={{ padding: '0 4px' }}>
+                <span key={currentYm} className="mono num-slide-inner num-slide-up" style={{ fontWeight: 600, fontSize: 13.5 }}>
+                  {currentYm}
+                </span>
               </span>
               <button
                 type="button"
@@ -950,12 +983,22 @@ export function App() {
               aria-label="Indicadores financeiros"
               style={overviewPrefs.showSecondaryKpis ? { marginBottom: 4 } : { gridTemplateColumns: '1fr', marginBottom: 4 }}
             >
-              <div className="surface">
+              <div
+                className={`surface ${
+                  monthMood === 'good'
+                    ? 'surface-mood-good'
+                    : monthMood === 'bad'
+                      ? 'surface-mood-bad'
+                      : ''
+                }`}
+              >
                 <div className="kpi-label">
                   <span>Patrimônio Líquido</span>
                   <Landmark size={16} />
                 </div>
-                <div className="kpi-value mono">{formatCentsBRL(netWorthCents)}</div>
+                <div className={`kpi-value mono ${netWorthCents < 0 ? 'text-terracotta' : ''}`}>
+                  <AnimatedCurrency cents={netWorthCents} mode="count" />
+                </div>
                 <div className="kpi-meta">Saldo total menos faturas abertas</div>
               </div>
 
@@ -966,7 +1009,9 @@ export function App() {
                       <span>Entradas ({currentYm})</span>
                       <ArrowDownLeft size={16} className="text-emerald" />
                     </div>
-                    <div className="kpi-value mono text-emerald">{formatCentsBRL(monthIncomeCents)}</div>
+                    <div className="kpi-value mono text-emerald">
+                      <AnimatedCurrency cents={monthIncomeCents} mode="count" />
+                    </div>
                     <div className="kpi-meta">Receitas do mês</div>
                   </div>
 
@@ -975,11 +1020,13 @@ export function App() {
                       <span>Saídas ({currentYm})</span>
                       <ArrowUpRight size={16} className="text-terracotta" />
                     </div>
-                    <div className="kpi-value mono text-terracotta">{formatCentsBRL(monthExpenseCents)}</div>
+                    <div className="kpi-value mono text-terracotta">
+                      <AnimatedCurrency cents={monthExpenseCents} mode="count" />
+                    </div>
                     <div className="kpi-meta">
                       Saldo do mês:{' '}
                       <strong className={`mono ${monthResultCents >= 0 ? 'text-emerald' : 'text-terracotta'}`}>
-                        {formatCentsBRL(monthResultCents, { showSign: true })}
+                        <AnimatedCurrency cents={monthResultCents} mode="slide" showSign />
                       </strong>
                     </div>
                   </div>
@@ -989,7 +1036,9 @@ export function App() {
                       <span>Faturas em Aberto</span>
                       <CreditCardIcon size={16} className="text-navy" />
                     </div>
-                    <div className="kpi-value mono text-navy">{formatCentsBRL(totalOpenCardsCents)}</div>
+                    <div className="kpi-value mono text-navy">
+                      <AnimatedCurrency cents={totalOpenCardsCents} mode="slide" />
+                    </div>
                     <div className="kpi-meta">Em {state.cards.length} cartão(ões)</div>
                   </div>
                 </>
@@ -1527,8 +1576,15 @@ export function App() {
                 {filteredTransactions.map((tx) => {
                   const accountName = state.accounts.find((a) => a.id === tx.accountId)?.name;
                   const cardName = state.cards.find((c) => c.id === tx.creditCardId)?.name;
+                  const isJustPaid = justPaidId === tx.id;
                   return (
-                    <div key={tx.id} className="list-row">
+                    <SwipeableTransactionRow
+                      key={tx.id}
+                      isPaid={tx.status === 'paid'}
+                      justPaid={isJustPaid}
+                      onSwipeRightPay={() => handleToggleTxStatus(tx.id)}
+                      onSwipeLeftEdit={() => handleStartEditTx(tx)}
+                    >
                       <div className="list-row-main">
                         <div className="list-row-title">
                           {tx.description}
@@ -1559,9 +1615,10 @@ export function App() {
                         </span>
                         <button
                           type="button"
-                          className={`btn btn-sm ${tx.status === 'paid' ? '' : 'btn-emerald'}`}
+                          className={`btn btn-sm ${tx.status === 'paid' ? '' : 'btn-emerald'} ${isJustPaid ? 'paid-pop' : ''}`}
                           onClick={() => handleToggleTxStatus(tx.id)}
                         >
+                          {tx.status === 'paid' && <Check size={13} />}
                           {tx.status === 'paid' ? 'Pago' : 'Pagar'}
                         </button>
                         <button
@@ -1583,7 +1640,7 @@ export function App() {
                           <Trash2 size={14} />
                         </button>
                       </div>
-                    </div>
+                    </SwipeableTransactionRow>
                   );
                 })}
               </div>
@@ -1829,8 +1886,13 @@ export function App() {
         </div>
       </main>
 
-      {/* Navegação Mobile fixa na zona do polegar (alvos >= 50px) */}
+      {/* Navegação Mobile fixa na zona do polegar com indicador deslizante (alvos >= 50px) */}
       <nav className="mobile-bottom-nav" aria-label="Navegação mobile">
+        <div
+          className="mobile-nav-pill"
+          aria-hidden="true"
+          style={{ transform: `translateX(${activeTabIdx * 100}%)` }}
+        />
         <button
           type="button"
           className={`mobile-nav-btn ${activeTab === 'overview' ? 'active' : ''}`}

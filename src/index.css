@@ -267,7 +267,7 @@ textarea {
   height: 34px;
   border-radius: 10px;
   background: var(--ink-primary);
-  color: #ffffff;
+  color: var(--bg-surface);
   display: grid;
   place-items: center;
   font-weight: 700;
@@ -1191,6 +1191,7 @@ textarea {
 }
 
 .info-balloon-trigger {
+  position: relative;
   width: 28px;
   height: 28px;
   border-radius: 999px;
@@ -1204,6 +1205,12 @@ textarea {
   transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
+.info-balloon-trigger::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+
 .info-balloon-trigger:hover,
 .info-balloon-trigger.active {
   background: var(--accent-navy);
@@ -1214,7 +1221,7 @@ textarea {
 .info-balloon-popover {
   position: absolute;
   top: calc(100% + 10px);
-  width: min(295px, 80vw);
+  width: min(300px, calc(100vw - 32px));
   padding: 13px 15px;
   border-radius: var(--radius-md);
   background: var(--popover-bg);
@@ -1239,6 +1246,23 @@ textarea {
 
 .info-balloon-right {
   right: 0;
+}
+
+@media (max-width: 640px) {
+  .info-balloon-popover,
+  .info-balloon-center,
+  .info-balloon-left,
+  .info-balloon-right {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    top: auto;
+    bottom: calc(92px + env(safe-area-inset-bottom));
+    width: auto;
+    max-width: none;
+    transform: none;
+    z-index: 220;
+  }
 }
 
 .info-balloon-head {
@@ -1387,6 +1411,34 @@ textarea {
   color: #ffffff;
 }
 
+.bento-hero-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-width: 0;
+  flex: 1;
+}
+
+.bento-hero-value {
+  font-size: clamp(25px, 4.4vw, 34px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.12;
+  color: var(--hero-ink);
+}
+
+.bento-hero-badge {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: var(--hero-ink);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
 .bento-sparkline-wrap {
   color: var(--hero-spark);
   flex-shrink: 0;
@@ -1416,6 +1468,9 @@ textarea {
 @media (max-width: 600px) {
   .bento-hero-card {
     padding: 18px 16px;
+  }
+  .bento-hero-badge {
+    display: none;
   }
   .bento-sparkline {
     width: 108px;

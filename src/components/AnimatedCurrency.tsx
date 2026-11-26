@@ -78,8 +78,10 @@ export function AnimatedCurrency({
     const startVal = from;
     const startTime = performance.now();
     let rafId = 0;
+    let cancelled = false;
 
     const tick = (now: number) => {
+      if (cancelled) return;
       const elapsed = now - startTime;
       const t = Math.min(1, elapsed / durationMs);
       // easeOutQuart: começo rápido e desaceleração longa e visível
@@ -96,8 +98,8 @@ export function AnimatedCurrency({
 
     rafId = requestAnimationFrame(tick);
     return () => {
+      cancelled = true;
       cancelAnimationFrame(rafId);
-      prevCentsRef.current = cents;
     };
   }, [cents, mode, durationMs, animateOnMount]);
 
